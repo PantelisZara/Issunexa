@@ -3,7 +3,9 @@ package io.github.panteliszara.issunexa.ticket;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,6 +20,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -116,8 +119,8 @@ class TicketRepositoryTests {
                 """, firstAtLatestTime.getId(), secondAtLatestTime.getId());
         entityManager.clear();
 
-        Page<Ticket> firstPage = ticketService.listTickets(0, 2);
-        Page<Ticket> secondPage = ticketService.listTickets(1, 2);
+        Page<Ticket> firstPage = ticketService.listTickets(0, 2, null, null);
+        Page<Ticket> secondPage = ticketService.listTickets(1, 2, null, null);
 
         assertThat(firstPage.getContent()).extracting(Ticket::getId)
                 .containsExactly(secondAtLatestTime.getId(), firstAtLatestTime.getId());
@@ -130,6 +133,57 @@ class TicketRepositoryTests {
         assertThat(secondPage.getNumber()).isEqualTo(1);
         assertThat(secondPage.getTotalElements()).isEqualTo(4);
         assertThat(secondPage.isLast()).isTrue();
+    }
+
+    @ParameterizedTest(name = "filters status={0}, priority={1} before pagination")
+    @MethodSource("filterCombinations")
+    void filtersBeforePaginationWithDeterministicOrder(
+            TicketStatus status, TicketPriority priority, List<String> expectedTitles) {
+        persistFilterFixtures();
+
+        Page<Ticket> firstPage = ticketService.listTickets(0, 2, status, priority);
+        Page<Ticket> secondPage = ticketService.listTickets(1, 2, status, priority);
+
+        assertThat(firstPage.getContent()).extracting(Ticket::getTitle)
+                .containsExactlyElementsOf(expectedTitles.subList(0, 2));
+        assertThat(secondPage.getContent()).extracting(Ticket::getTitle)
+                .containsExactlyElementsOf(expectedTitles.subList(2, expectedTitles.size()));
+        assertThat(firstPage.getNumber()).isZero();
+        assertThat(firstPage.getSize()).isEqualTo(2);
+        assertThat(firstPage.getTotalElements()).isEqualTo(expectedTitles.size());
+        assertThat(firstPage.getTotalPages()).isEqualTo(2);
+        assertThat(firstPage.isFirst()).isTrue();
+        assertThat(firstPage.isLast()).isFalse();
+        assertThat(secondPage.getNumber()).isEqualTo(1);
+        assertThat(secondPage.getSize()).isEqualTo(2);
+        assertThat(secondPage.getTotalElements()).isEqualTo(expectedTitles.size());
+        assertThat(secondPage.getTotalPages()).isEqualTo(2);
+        assertThat(secondPage.isFirst()).isFalse();
+        assertThat(secondPage.isLast()).isTrue();
+    }
+
+    static Stream<Arguments> filterCombinations() {
+        return Stream.of(
+                Arguments.of(TicketStatus.OPEN, null,
+                        List.of("Second tied open/high", "First tied open/high", "Open/low", "Old open/high")),
+                Arguments.of(null, TicketPriority.HIGH,
+                        List.of("In progress/high", "Second tied open/high", "First tied open/high", "Old open/high")),
+                Arguments.of(TicketStatus.OPEN, TicketPriority.HIGH,
+                        List.of("Second tied open/high", "First tied open/high", "Old open/high"))
+        );
+    }
+
+    @Test
+    void returnsEmptyPageWhenNoTicketMatchesBothFilters() {
+        persistFilterFixtures();
+
+        Page<Ticket> page = ticketService.listTickets(0, 2, TicketStatus.CLOSED, TicketPriority.HIGH);
+
+        assertThat(page.getContent()).isEmpty();
+        assertThat(page.getTotalElements()).isZero();
+        assertThat(page.getTotalPages()).isZero();
+        assertThat(page.isFirst()).isTrue();
+        assertThat(page.isLast()).isTrue();
     }
 
     @ParameterizedTest(name = "rejects invalid enum value using {2}")
@@ -148,6 +202,23 @@ class TicketRepositoryTests {
                     assertThat(exception.getSQLState()).isEqualTo("23514");
                     assertThat(exception.getServerErrorMessage().getConstraint()).isEqualTo(constraintName);
                 });
+    }
+
+    private void persistFilterFixtures() {
+        persistFilterTicket("Old open/high", TicketStatus.OPEN, TicketPriority.HIGH, "2000-01-01T00:00:00Z");
+        persistFilterTicket("First tied open/high", TicketStatus.OPEN, TicketPriority.HIGH, "2002-01-01T00:00:00Z");
+        persistFilterTicket("Second tied open/high", TicketStatus.OPEN, TicketPriority.HIGH, "2002-01-01T00:00:00Z");
+        persistFilterTicket("Open/low", TicketStatus.OPEN, TicketPriority.LOW, "2001-01-01T00:00:00Z");
+        persistFilterTicket("In progress/high", TicketStatus.IN_PROGRESS, TicketPriority.HIGH,
+                "2003-01-01T00:00:00Z");
+        persistFilterTicket("Closed/urgent", TicketStatus.CLOSED, TicketPriority.URGENT, "2004-01-01T00:00:00Z");
+        entityManager.clear();
+    }
+
+    private void persistFilterTicket(String title, TicketStatus status, TicketPriority priority, String createdAt) {
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Filter fixture", status, priority));
+        jdbcTemplate.update("UPDATE tickets SET created_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?",
+                createdAt, ticket.getId());
     }
 
 }

@@ -9,6 +9,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -59,10 +60,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleTypeMismatch(
             TypeMismatchException exception, HttpHeaders headers,
             HttpStatusCode status, WebRequest request) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "Malformed or unreadable request parameter.");
-        problem.setType(ABOUT_BLANK);
-        problem.setTitle("Invalid request parameter");
-        return handleExceptionInternal(exception, problem, headers, status, request);
+        return handleExceptionInternal(exception, invalidParameterProblem(status), headers, status, request);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleServletRequestBindingException(
+            ServletRequestBindingException exception, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        return handleExceptionInternal(exception, invalidParameterProblem(status), headers, status, request);
     }
 
     @Override
@@ -73,6 +78,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setType(ABOUT_BLANK);
         problem.setTitle("Invalid request body");
         return handleExceptionInternal(exception, problem, headers, status, request);
+    }
+
+    private static ProblemDetail invalidParameterProblem(HttpStatusCode status) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, "Malformed or unreadable request parameter.");
+        problem.setType(ABOUT_BLANK);
+        problem.setTitle("Invalid request parameter");
+        return problem;
     }
 
     private static ProblemDetail validationProblem(HttpStatusCode status, Stream<FieldValidationError> errors) {

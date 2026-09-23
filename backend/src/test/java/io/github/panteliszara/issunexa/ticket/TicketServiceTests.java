@@ -18,7 +18,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -85,15 +87,72 @@ class TicketServiceTests {
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
         when(ticketRepository.findAll(any(Pageable.class))).thenReturn(repositoryResult);
 
-        Page<Ticket> result = ticketService.listTickets(2, 10);
+        Page<Ticket> result = ticketService.listTickets(2, 10, null, null);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(ticketRepository).findAll(pageableCaptor.capture());
-        Pageable pageable = pageableCaptor.getValue();
+        assertListingPageable(pageableCaptor.getValue());
+        assertThat(result).isSameAs(repositoryResult);
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @Test
+    void listsTicketsByStatusWithPaginationAndDeterministicOrder() {
+        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.IN_PROGRESS, TicketPriority.HIGH);
+        Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
+        when(ticketRepository.findAllByStatus(eq(TicketStatus.IN_PROGRESS), any(Pageable.class)))
+                .thenReturn(repositoryResult);
+
+        Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, null);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(ticketRepository).findAllByStatus(eq(TicketStatus.IN_PROGRESS), pageableCaptor.capture());
+        assertListingPageable(pageableCaptor.getValue());
+        assertThat(result).isSameAs(repositoryResult);
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @Test
+    void listsTicketsByPriorityWithPaginationAndDeterministicOrder() {
+        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH);
+        Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
+        when(ticketRepository.findAllByPriority(eq(TicketPriority.HIGH), any(Pageable.class)))
+                .thenReturn(repositoryResult);
+
+        Page<Ticket> result = ticketService.listTickets(2, 10, null, TicketPriority.HIGH);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(ticketRepository).findAllByPriority(eq(TicketPriority.HIGH), pageableCaptor.capture());
+        assertListingPageable(pageableCaptor.getValue());
+        assertThat(result).isSameAs(repositoryResult);
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @Test
+    void listsTicketsByStatusAndPriorityWithPaginationAndDeterministicOrder() {
+        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
+        Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
+        when(ticketRepository.findAllByStatusAndPriority(
+                eq(TicketStatus.IN_PROGRESS), eq(TicketPriority.URGENT), any(Pageable.class)))
+                .thenReturn(repositoryResult);
+
+        Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(ticketRepository).findAllByStatusAndPriority(
+                eq(TicketStatus.IN_PROGRESS), eq(TicketPriority.URGENT), pageableCaptor.capture());
+        assertListingPageable(pageableCaptor.getValue());
+        assertThat(result).isSameAs(repositoryResult);
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    private static void assertListingPageable(Pageable pageable) {
         assertThat(pageable.getPageNumber()).isEqualTo(2);
         assertThat(pageable.getPageSize()).isEqualTo(10);
         assertThat(pageable.getSort()).containsExactly(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
-        assertThat(result).isSameAs(repositoryResult);
     }
 
 }

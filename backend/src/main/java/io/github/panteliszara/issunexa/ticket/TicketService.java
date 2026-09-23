@@ -28,8 +28,17 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Ticket> listTickets(int page, int size) {
+    public Page<Ticket> listTickets(int page, int size, TicketStatus status, TicketPriority priority) {
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        if (status != null && priority != null) {
+            return ticketRepository.findAllByStatusAndPriority(status, priority, pageRequest);
+        }
+        if (status != null) {
+            return ticketRepository.findAllByStatus(status, pageRequest);
+        }
+        if (priority != null) {
+            return ticketRepository.findAllByPriority(priority, pageRequest);
+        }
         return ticketRepository.findAll(pageRequest);
     }
 

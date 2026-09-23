@@ -207,7 +207,7 @@ class TicketControllerTests {
     @Test
     void listsTicketsWithDefaultPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20))
+        when(ticketService.listTickets(0, 20, null, null))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
         mockMvc.perform(get("/api/tickets"))
@@ -225,13 +225,13 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "OPEN")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(0, 20);
+        verify(ticketService).listTickets(0, 20, null, null);
     }
 
     @Test
     void listsTicketsWithCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS);
-        when(ticketService.listTickets(2, 10))
+        when(ticketService.listTickets(2, 10, null, null))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 45));
 
         mockMvc.perform(get("/api/tickets").param("page", "2").param("size", "10"))
@@ -249,7 +249,111 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "IN_PROGRESS")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(2, 10);
+        verify(ticketService).listTickets(2, 10, null, null);
+    }
+
+    @Test
+    void listsTicketsByStatus() throws Exception {
+        Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
+        when(ticketService.listTickets(0, 20, TicketStatus.OPEN, null))
+                .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/api/tickets").param("status", "OPEN"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].status").value("OPEN"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        verify(ticketService).listTickets(0, 20, TicketStatus.OPEN, null);
+    }
+
+    @Test
+    void listsTicketsByPriority() throws Exception {
+        Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
+        when(ticketService.listTickets(0, 20, null, TicketPriority.HIGH))
+                .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/api/tickets").param("priority", "HIGH"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].priority").value("HIGH"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        verify(ticketService).listTickets(0, 20, null, TicketPriority.HIGH);
+    }
+
+    @Test
+    void listsTicketsByStatusAndPriorityWithCustomPagination() throws Exception {
+        Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
+        when(ticketService.listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT))
+                .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(1, 10), 11));
+
+        mockMvc.perform(get("/api/tickets")
+                        .param("status", "IN_PROGRESS")
+                        .param("priority", "URGENT")
+                        .param("page", "1")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {
+                          "content":[%s],
+                          "page":1,
+                          "size":10,
+                          "totalElements":11,
+                          "totalPages":2,
+                          "first":false,
+                          "last":true
+                        }
+                        """.formatted(ticketJson("Printer offline", "IN_PROGRESS", "URGENT")),
+                        JsonCompareMode.STRICT));
+
+        verify(ticketService).listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidFilters")
+    void returnsSafeProblemDetailForInvalidFilters(String scenario, String parameter, String[] values)
+            throws Exception {
+        mockMvc.perform(get("/api/tickets").param(parameter, values))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {
+                          "type":"about:blank",
+                          "title":"Invalid request parameter",
+                          "status":400,
+                          "detail":"Malformed or unreadable request parameter.",
+                          "instance":"/api/tickets"
+                        }
+                        """, JsonCompareMode.STRICT));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidFilters() {
+        return Stream.of(
+                Arguments.of("invalid status", "status", new String[]{"INVALID"}),
+                Arguments.of("invalid priority", "priority", new String[]{"CRITICAL"}),
+                Arguments.of("lowercase status", "status", new String[]{"open"}),
+                Arguments.of("lowercase priority", "priority", new String[]{"high"}),
+                Arguments.of("comma-separated statuses", "status", new String[]{"OPEN,CLOSED"}),
+                Arguments.of("comma-separated priorities", "priority", new String[]{"LOW,HIGH"}),
+                Arguments.of("multiple statuses", "status", new String[]{"OPEN", "CLOSED"}),
+                Arguments.of("multiple priorities", "priority", new String[]{"LOW", "HIGH"}),
+                Arguments.of("repeated status", "status", new String[]{"OPEN", "OPEN"}),
+                Arguments.of("repeated priority", "priority", new String[]{"HIGH", "HIGH"}),
+                Arguments.of("array-style statuses", "status[]", new String[]{"OPEN", "CLOSED"}),
+                Arguments.of("array-style priorities", "priority[]", new String[]{"LOW", "HIGH"}),
+                Arguments.of("empty status", "status", new String[]{""}),
+                Arguments.of("blank priority", "priority", new String[]{" "})
+        );
     }
 
     @ParameterizedTest
@@ -261,7 +365,7 @@ class TicketControllerTests {
     void returnsEmptyPageWithMetadata(int page, int size, long totalElements, int totalPages, boolean first)
             throws Exception {
         Page<Ticket> tickets = new PageImpl<>(List.of(), PageRequest.of(page, size), totalElements);
-        when(ticketService.listTickets(page, size)).thenReturn(tickets);
+        when(ticketService.listTickets(page, size, null, null)).thenReturn(tickets);
 
         mockMvc.perform(get("/api/tickets")
                         .param("page", Integer.toString(page))
@@ -280,7 +384,7 @@ class TicketControllerTests {
                         }
                         """.formatted(page, size, totalElements, totalPages, first), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(page, size);
+        verify(ticketService).listTickets(page, size, null, null);
     }
 
     @ParameterizedTest(name = "rejects {0}={1}")
@@ -349,7 +453,11 @@ class TicketControllerTests {
     }
 
     private static Ticket persistedTicket(String title, TicketStatus status) {
-        Ticket ticket = new Ticket(title, "The office printer is unreachable.", status, TicketPriority.HIGH);
+        return persistedTicket(title, status, TicketPriority.HIGH);
+    }
+
+    private static Ticket persistedTicket(String title, TicketStatus status, TicketPriority priority) {
+        Ticket ticket = new Ticket(title, "The office printer is unreachable.", status, priority);
         ReflectionTestUtils.setField(ticket, "id", 42L);
         ReflectionTestUtils.setField(ticket, "createdAt", Instant.parse("2026-09-23T10:00:00Z"));
         ReflectionTestUtils.setField(ticket, "updatedAt", Instant.parse("2026-09-23T10:05:00Z"));
@@ -357,17 +465,21 @@ class TicketControllerTests {
     }
 
     private static String ticketJson(String title, String status) {
+        return ticketJson(title, status, "HIGH");
+    }
+
+    private static String ticketJson(String title, String status, String priority) {
         return """
                 {
                   "id":42,
                   "title":"%s",
                   "description":"The office printer is unreachable.",
                   "status":"%s",
-                  "priority":"HIGH",
+                  "priority":"%s",
                   "createdAt":"2026-09-23T10:00:00Z",
                   "updatedAt":"2026-09-23T10:05:00Z"
                 }
-                """.formatted(title, status);
+                """.formatted(title, status, priority);
     }
 
 }
