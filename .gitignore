@@ -1,0 +1,30 @@
+# Java and Maven
+target/
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# IntelliJ IDEA and VS Code
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Local environment and credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# Operating system files and editor backups
+.DS_Store
+._*
+.Trash-*
+Thumbs.db
+Desktop.ini
+*~

@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: issunexa
+  datasource:
+    url: ${ISSUNEXA_DB_URL}
+    username: ${ISSUNEXA_DB_USERNAME}
+    password: ${ISSUNEXA_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
