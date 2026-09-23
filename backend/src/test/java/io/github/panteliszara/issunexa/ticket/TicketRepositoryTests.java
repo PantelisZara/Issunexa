@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
@@ -16,6 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +33,9 @@ class TicketRepositoryTests {
 
     @Autowired
     private TicketRepository ticketRepository;
+
+    @Autowired
+    private TicketService ticketService;
 
     @Autowired
     private EntityManager entityManager;
@@ -88,6 +93,43 @@ class TicketRepositoryTests {
         assertThat(updated.getDescription()).isEqualTo("Updated description");
         assertThat(updated.getCreatedAt()).isEqualTo(createdAt);
         assertThat(updated.getUpdatedAt()).isAfter(updatedAt);
+    }
+
+    @Test
+    void pagesTicketsByCreationTimeDescendingWithIdAsTieBreaker() {
+        Ticket oldest = new Ticket("Oldest", "Oldest ticket", TicketStatus.OPEN, TicketPriority.LOW);
+        Ticket firstAtLatestTime = new Ticket("Latest first", "First at latest time",
+                TicketStatus.OPEN, TicketPriority.HIGH);
+        Ticket secondAtLatestTime = new Ticket("Latest second", "Second at latest time",
+                TicketStatus.OPEN, TicketPriority.HIGH);
+        Ticket middle = new Ticket("Middle", "Middle ticket", TicketStatus.OPEN, TicketPriority.MEDIUM);
+        ticketRepository.saveAllAndFlush(List.of(oldest, firstAtLatestTime, secondAtLatestTime, middle));
+
+        jdbcTemplate.update("""
+                UPDATE tickets SET created_at = TIMESTAMPTZ '2000-01-01 00:00:00+00' WHERE id = ?
+                """, oldest.getId());
+        jdbcTemplate.update("""
+                UPDATE tickets SET created_at = TIMESTAMPTZ '2001-01-01 00:00:00+00' WHERE id = ?
+                """, middle.getId());
+        jdbcTemplate.update("""
+                UPDATE tickets SET created_at = TIMESTAMPTZ '2002-01-01 00:00:00+00' WHERE id IN (?, ?)
+                """, firstAtLatestTime.getId(), secondAtLatestTime.getId());
+        entityManager.clear();
+
+        Page<Ticket> firstPage = ticketService.listTickets(0, 2);
+        Page<Ticket> secondPage = ticketService.listTickets(1, 2);
+
+        assertThat(firstPage.getContent()).extracting(Ticket::getId)
+                .containsExactly(secondAtLatestTime.getId(), firstAtLatestTime.getId());
+        assertThat(secondPage.getContent()).extracting(Ticket::getId)
+                .containsExactly(middle.getId(), oldest.getId());
+        assertThat(firstPage.getTotalElements()).isEqualTo(4);
+        assertThat(firstPage.getTotalPages()).isEqualTo(2);
+        assertThat(firstPage.isFirst()).isTrue();
+        assertThat(firstPage.isLast()).isFalse();
+        assertThat(secondPage.getNumber()).isEqualTo(1);
+        assertThat(secondPage.getTotalElements()).isEqualTo(4);
+        assertThat(secondPage.isLast()).isTrue();
     }
 
     @ParameterizedTest(name = "rejects invalid enum value using {2}")

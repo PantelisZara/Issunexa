@@ -2,7 +2,7 @@
 
 Issunexa is an Issue & Service Management / Help Desk platform being developed as a professional portfolio project.
 
-Development has just started. The current backend contains an initial Ticket persistence model with PostgreSQL integration tests. Business workflows and custom HTTP endpoints have not been implemented yet.
+The current backend supports creating and retrieving Tickets through a REST API, backed by PostgreSQL persistence.
 
 ## Backend baseline
 
@@ -39,7 +39,21 @@ cd backend
 
 The integration tests share a disposable PostgreSQL 18.6 container and verify Ticket persistence, timestamps and database enum constraints against the Flyway-created schema. Each test rolls back its data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the container after the suite.
 
-`package` compiles the application, runs the integration tests and creates an executable JAR. Tests require the container runtime and fail if it is unavailable.
+Service unit tests and MVC controller slice tests run without PostgreSQL. `package` compiles the application, runs the full test suite and creates an executable JAR. The full suite requires the container runtime and fails if it is unavailable.
+
+## Ticket API
+
+| Method | Path | Successful response |
+| --- | --- | --- |
+| POST | `/api/tickets` | `201 Created`, Ticket JSON and a `Location` header |
+| GET | `/api/tickets/{id}` | `200 OK` and Ticket JSON |
+| GET | `/api/tickets` | `200 OK`, Ticket content and page metadata |
+
+Creation accepts `title`, `description` and `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`). Title and description must not be blank; title is limited to 255 characters and priority is required. New Tickets start as `OPEN`.
+
+Listing accepts zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`). For example, `GET /api/tickets?page=2&size=10` retrieves the third page. Empty pages return an empty `content` array with page metadata.
+
+Invalid input returns `400`; a missing Ticket returns `404`. Errors use `application/problem+json`, with field details for validation failures.
 
 ## Runtime database configuration
 
@@ -65,7 +79,7 @@ Or run the packaged application:
 java -jar target/issunexa-0.0.1-SNAPSHOT.jar
 ```
 
-The application uses Spring Boot's default HTTP port, `8080`. There are no custom routes yet, so a request to `/` returns HTTP 404. Stop the application with `Ctrl+C`.
+The application uses Spring Boot's default HTTP port, `8080`. A request to `/` returns HTTP 404. Stop the application with `Ctrl+C`.
 
 ## Repository structure
 
@@ -80,6 +94,6 @@ The application uses Spring Boot's default HTTP port, `8080`. There are no custo
     ├── mvnw.cmd          # Windows wrapper
     ├── pom.xml           # Backend build and dependencies
     └── src/
-        ├── main/         # Application, Ticket model and migrations
-        └── test/         # PostgreSQL integration tests
+        ├── main/         # Application, Ticket API/model and migrations
+        └── test/         # Service, MVC and PostgreSQL tests
 ```

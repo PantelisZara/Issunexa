@@ -6,7 +6,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,6 +76,24 @@ class TicketServiceTests {
                 .isInstanceOf(TicketNotFoundException.class)
                 .hasMessageContaining(missingId.toString());
         verify(ticketRepository).findById(missingId);
+    }
+
+    @Test
+    void listsTicketsWithPaginationAndDeterministicOrder() {
+        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH);
+        Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
+        when(ticketRepository.findAll(any(Pageable.class))).thenReturn(repositoryResult);
+
+        Page<Ticket> result = ticketService.listTickets(2, 10);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(ticketRepository).findAll(pageableCaptor.capture());
+        Pageable pageable = pageableCaptor.getValue();
+        assertThat(pageable.getPageNumber()).isEqualTo(2);
+        assertThat(pageable.getPageSize()).isEqualTo(10);
+        assertThat(pageable.getSort()).containsExactly(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+        assertThat(result).isSameAs(repositoryResult);
     }
 
 }
