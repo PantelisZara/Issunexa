@@ -48,8 +48,18 @@ Service unit tests and MVC controller slice tests run without PostgreSQL. `packa
 | POST | `/api/tickets` | `201 Created`, Ticket JSON and a `Location` header |
 | GET | `/api/tickets/{id}` | `200 OK` and Ticket JSON |
 | GET | `/api/tickets` | `200 OK`, Ticket content and page metadata |
+| PATCH | `/api/tickets/{id}/status` | `200 OK` and the updated Ticket JSON |
 
 Creation accepts `title`, `description` and `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`). Title and description must not be blank; title is limited to 255 characters and priority is required. New Tickets start as `OPEN`.
+
+Status changes accept only `status`, for example `PATCH /api/tickets/42/status` with `{"status":"IN_PROGRESS"}`. The allowed transitions are:
+
+- `OPEN → IN_PROGRESS`
+- `IN_PROGRESS → RESOLVED`
+- `RESOLVED → IN_PROGRESS`
+- `RESOLVED → CLOSED`
+
+`CLOSED` is terminal in the current version. All other transitions, including requests for the current status, return `409 Conflict` Problem Details. Missing Tickets return `404`; missing/null status or an unsupported status value returns `400`.
 
 Listing accepts zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`). For example, `GET /api/tickets?page=2&size=10` retrieves the third page. Empty pages return an empty `content` array with page metadata.
 

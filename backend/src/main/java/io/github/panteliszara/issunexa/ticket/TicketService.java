@@ -28,6 +28,14 @@ public class TicketService {
                 .orElseThrow(() -> new TicketNotFoundException(id));
     }
 
+    @Transactional
+    public Ticket changeStatus(Long id, TicketStatus targetStatus) {
+        Ticket ticket = ticketRepository.findById(id)
+                .orElseThrow(() -> new TicketNotFoundException(id));
+        ticket.changeStatus(targetStatus);
+        return ticket;
+    }
+
     @Transactional(readOnly = true)
     public Page<Ticket> listTickets(int page, int size, TicketStatus status, TicketPriority priority, String query,
             TicketSortField sortField, TicketSortDirection sortDirection) {

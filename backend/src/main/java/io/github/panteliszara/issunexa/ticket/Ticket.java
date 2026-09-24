@@ -12,6 +12,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.Objects;
 
 @Entity
 @Table(name = "tickets")
@@ -48,7 +49,7 @@ public class Ticket {
     public Ticket(String title, String description, TicketStatus status, TicketPriority priority) {
         this.title = title;
         this.description = description;
-        this.status = status;
+        this.status = Objects.requireNonNull(status, "status must not be null");
         this.priority = priority;
     }
 
@@ -78,6 +79,20 @@ public class Ticket {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void changeStatus(TicketStatus targetStatus) {
+        Objects.requireNonNull(targetStatus, "targetStatus must not be null");
+        boolean allowed = switch (status) {
+            case OPEN -> targetStatus == TicketStatus.IN_PROGRESS;
+            case IN_PROGRESS -> targetStatus == TicketStatus.RESOLVED;
+            case RESOLVED -> targetStatus == TicketStatus.IN_PROGRESS || targetStatus == TicketStatus.CLOSED;
+            case CLOSED -> false;
+        };
+        if (!allowed) {
+            throw new InvalidTicketStatusTransitionException(id, status, targetStatus);
+        }
+        status = targetStatus;
     }
 
     public void updateDetails(String title, String description) {

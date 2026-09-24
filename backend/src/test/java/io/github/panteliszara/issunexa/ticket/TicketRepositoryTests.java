@@ -73,16 +73,7 @@ class TicketRepositoryTests {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "Original description",
                 TicketStatus.OPEN, TicketPriority.MEDIUM));
 
-        // Model an older row so the update assertion does not depend on clock resolution.
-        jdbcTemplate.update("""
-                UPDATE tickets
-                SET created_at = TIMESTAMPTZ '2000-01-01 00:00:00+00',
-                    updated_at = TIMESTAMPTZ '2000-01-01 00:00:00+00'
-                WHERE id = ?
-                """, ticket.getId());
-        entityManager.clear();
-
-        Ticket existing = ticketRepository.findById(ticket.getId()).orElseThrow();
+        Ticket existing = reloadWithHistoricalTimestamps(ticket);
         Instant createdAt = existing.getCreatedAt();
         Instant updatedAt = existing.getUpdatedAt();
 
@@ -96,6 +87,54 @@ class TicketRepositoryTests {
         assertThat(updated.getDescription()).isEqualTo("Updated description");
         assertThat(updated.getCreatedAt()).isEqualTo(createdAt);
         assertThat(updated.getUpdatedAt()).isAfter(updatedAt);
+    }
+
+    @Test
+    void persistsStatusChangeThroughDirtyCheckingAndAdvancesOnlyUpdatedAt() {
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH));
+        Ticket existing = reloadWithHistoricalTimestamps(ticket);
+        Instant createdAt = existing.getCreatedAt();
+        Instant updatedAt = existing.getUpdatedAt();
+        assertThat(entityManager.contains(existing)).isTrue();
+
+        Ticket result = ticketService.changeStatus(existing.getId(), TicketStatus.IN_PROGRESS);
+
+        assertThat(result).isSameAs(existing);
+        ticketRepository.flush();
+        entityManager.clear();
+
+        Ticket reloaded = ticketRepository.findById(ticket.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+        assertThat(reloaded.getCreatedAt()).isEqualTo(createdAt);
+        assertThat(reloaded.getUpdatedAt()).isAfter(updatedAt);
+        assertThat(reloaded.getTitle()).isEqualTo("Printer offline");
+        assertThat(reloaded.getDescription()).isEqualTo("The office printer is unreachable.");
+        assertThat(reloaded.getPriority()).isEqualTo(TicketPriority.HIGH);
+    }
+
+    @Test
+    void rejectedStatusChangeLeavesPersistedStatusAndTimestampsUnchanged() {
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH));
+        Ticket existing = reloadWithHistoricalTimestamps(ticket);
+        Instant createdAt = existing.getCreatedAt();
+        Instant updatedAt = existing.getUpdatedAt();
+
+        // Flush after the domain rejection so rollback cannot hide an accidental mutation.
+        assertThatThrownBy(() -> existing.changeStatus(TicketStatus.CLOSED))
+                .isInstanceOfSatisfying(InvalidTicketStatusTransitionException.class, exception -> {
+                    assertThat(exception.getTicketId()).isEqualTo(existing.getId());
+                    assertThat(exception.getCurrentStatus()).isEqualTo(TicketStatus.OPEN);
+                    assertThat(exception.getRequestedStatus()).isEqualTo(TicketStatus.CLOSED);
+                });
+        ticketRepository.flush();
+        entityManager.clear();
+
+        Ticket reloaded = ticketRepository.findById(ticket.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TicketStatus.OPEN);
+        assertThat(reloaded.getCreatedAt()).isEqualTo(createdAt);
+        assertThat(reloaded.getUpdatedAt()).isEqualTo(updatedAt);
     }
 
     @Test
@@ -317,6 +356,18 @@ class TicketRepositoryTests {
         ));
         entityManager.clear();
         return fixtures;
+    }
+
+    private Ticket reloadWithHistoricalTimestamps(Ticket ticket) {
+        // Model an older row so the update assertion does not depend on clock resolution.
+        jdbcTemplate.update("""
+                UPDATE tickets
+                SET created_at = TIMESTAMPTZ '2000-01-01 00:00:00+00',
+                    updated_at = TIMESTAMPTZ '2000-01-01 00:00:00+00'
+                WHERE id = ?
+                """, ticket.getId());
+        entityManager.clear();
+        return ticketRepository.findById(ticket.getId()).orElseThrow();
     }
 
     private void persistFilterFixtures() {

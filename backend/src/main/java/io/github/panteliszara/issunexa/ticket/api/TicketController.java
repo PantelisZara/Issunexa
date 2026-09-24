@@ -16,6 +16,7 @@ import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.InitBinder;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,6 +52,11 @@ public class TicketController {
     @GetMapping("/{id}")
     public TicketResponse getTicket(@PathVariable Long id) {
         return TicketResponse.from(ticketService.getTicket(id));
+    }
+
+    @PatchMapping("/{id}/status")
+    public TicketResponse changeStatus(@PathVariable Long id, @Valid @RequestBody UpdateTicketStatusRequest request) {
+        return TicketResponse.from(ticketService.changeStatus(id, request.status()));
     }
 
     @GetMapping

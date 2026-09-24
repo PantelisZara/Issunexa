@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.ticket.api;
 
+import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
 import io.github.panteliszara.issunexa.ticket.Ticket;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -102,6 +104,115 @@ class TicketControllerTests {
                         """, JsonCompareMode.STRICT));
 
         verify(ticketService).getTicket(99L);
+    }
+
+    @Test
+    void changesStatusThroughServiceAndReturnsTicketResponse() throws Exception {
+        when(ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS))
+                .thenReturn(persistedTicket("Printer offline", TicketStatus.IN_PROGRESS));
+
+        mockMvc.perform(patch("/api/tickets/42/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"IN_PROGRESS"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json(ticketJson("Printer offline", "IN_PROGRESS"), JsonCompareMode.STRICT));
+
+        verify(ticketService).changeStatus(42L, TicketStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void returnsExistingNotFoundProblemForStatusChange() throws Exception {
+        when(ticketService.changeStatus(99L, TicketStatus.IN_PROGRESS)).thenThrow(new TicketNotFoundException(99L));
+
+        mockMvc.perform(patch("/api/tickets/99/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"IN_PROGRESS"}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {
+                          "type":"about:blank",
+                          "title":"Ticket not found",
+                          "status":404,
+                          "detail":"Ticket with ID 99 was not found",
+                          "instance":"/api/tickets/99/status"
+                        }
+                        """, JsonCompareMode.STRICT));
+
+        verify(ticketService).changeStatus(99L, TicketStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void returnsSafeConflictProblemForInvalidStatusTransition() throws Exception {
+        when(ticketService.changeStatus(42L, TicketStatus.CLOSED))
+                .thenThrow(new InvalidTicketStatusTransitionException(42L, TicketStatus.OPEN, TicketStatus.CLOSED));
+
+        mockMvc.perform(patch("/api/tickets/42/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"CLOSED"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {
+                          "type":"about:blank",
+                          "title":"Invalid ticket status transition",
+                          "status":409,
+                          "detail":"Ticket 42 cannot transition from OPEN to CLOSED.",
+                          "instance":"/api/tickets/42/status"
+                        }
+                        """, JsonCompareMode.STRICT));
+
+        verify(ticketService).changeStatus(42L, TicketStatus.CLOSED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"status\":null}"})
+    void rejectsMissingOrNullStatusBeforeCallingService(String request) throws Exception {
+        mockMvc.perform(patch("/api/tickets/42/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {
+                          "type":"about:blank",
+                          "title":"Validation failed",
+                          "status":400,
+                          "detail":"Request validation failed.",
+                          "instance":"/api/tickets/42/status",
+                          "errors":[{"field":"status","message":"must not be null"}]
+                        }
+                        """, JsonCompareMode.STRICT));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"status\":\"WAITING_FOR_MAGIC\"}", "{\"status\":"})
+    void returnsSafeProblemForUnreadableStatusBody(String request) throws Exception {
+        mockMvc.perform(patch("/api/tickets/42/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {
+                          "type":"about:blank",
+                          "title":"Invalid request body",
+                          "status":400,
+                          "detail":"Malformed or unreadable request body.",
+                          "instance":"/api/tickets/42/status"
+                        }
+                        """, JsonCompareMode.STRICT));
+
+        verifyNoInteractions(ticketService);
     }
 
     @ParameterizedTest(name = "{0}")

@@ -85,6 +85,44 @@ class TicketServiceTests {
         verify(ticketRepository).findById(missingId);
     }
 
+    @Test
+    void changesStatusAndReturnsLoadedTicketWithoutSavingAgain() {
+        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH);
+        when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
+
+        Ticket result = ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS);
+
+        assertThat(result).isSameAs(ticket);
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+        verify(ticketRepository).findById(42L);
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @Test
+    void rejectsStatusChangeWhenTicketIsMissing() {
+        when(ticketRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ticketService.changeStatus(99L, TicketStatus.IN_PROGRESS))
+                .isInstanceOf(TicketNotFoundException.class)
+                .hasMessageContaining("99");
+        verify(ticketRepository).findById(99L);
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @Test
+    void propagatesInvalidStatusTransition() {
+        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH);
+        when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
+
+        assertThatThrownBy(() -> ticketService.changeStatus(42L, TicketStatus.CLOSED))
+                .isInstanceOf(InvalidTicketStatusTransitionException.class);
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.OPEN);
+        verify(ticketRepository).findById(42L);
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
     @ParameterizedTest(name = "{0} {1}")
     @MethodSource("sortOrders")
     void listsTicketsWithPaginationAndDeterministicOrder(

@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.shared.web;
 
+import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
@@ -31,6 +32,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
         problem.setType(ABOUT_BLANK);
         problem.setTitle("Ticket not found");
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidTicketStatusTransitionException.class)
+    public ProblemDetail handleInvalidTicketStatusTransition(InvalidTicketStatusTransitionException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        problem.setType(ABOUT_BLANK);
+        problem.setTitle("Invalid ticket status transition");
         return problem;
     }
 
