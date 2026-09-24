@@ -3,6 +3,7 @@ package io.github.panteliszara.issunexa.ticket;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,18 +29,24 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Ticket> listTickets(int page, int size, TicketStatus status, TicketPriority priority) {
-        PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
-        if (status != null && priority != null) {
-            return ticketRepository.findAllByStatusAndPriority(status, priority, pageRequest);
-        }
+    public Page<Ticket> listTickets(int page, int size, TicketStatus status, TicketPriority priority, String query,
+            TicketSortField sortField, TicketSortDirection sortDirection) {
+        Sort.Direction direction = switch (sortDirection) {
+            case ASC -> Sort.Direction.ASC;
+            case DESC -> Sort.Direction.DESC;
+        };
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by(direction, sortField.getPropertyName(), "id"));
+        Specification<Ticket> specification = Specification.unrestricted();
         if (status != null) {
-            return ticketRepository.findAllByStatus(status, pageRequest);
+            specification = specification.and(TicketSpecifications.hasStatus(status));
         }
         if (priority != null) {
-            return ticketRepository.findAllByPriority(priority, pageRequest);
+            specification = specification.and(TicketSpecifications.hasPriority(priority));
         }
-        return ticketRepository.findAll(pageRequest);
+        if (query != null) {
+            specification = specification.and(TicketSpecifications.containsText(query));
+        }
+        return ticketRepository.findAll(specification, pageRequest);
     }
 
 }

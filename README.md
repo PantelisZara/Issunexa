@@ -53,7 +53,11 @@ Creation accepts `title`, `description` and `priority` (`LOW`, `MEDIUM`, `HIGH` 
 
 Listing accepts zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`). For example, `GET /api/tickets?page=2&size=10` retrieves the third page. Empty pages return an empty `content` array with page metadata.
 
-Optional listing filters are `status` (`OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`) and `priority` (`LOW`, `MEDIUM`, `HIGH`, `URGENT`). Each accepts a single, case-sensitive value. Both filters use AND semantics: `GET /api/tickets?status=OPEN&priority=HIGH&page=0&size=10` returns only open, high-priority Tickets. Filtering occurs before pagination; omitting both filters returns all Tickets.
+Optional listing filters are `status` (`OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`) and `priority` (`LOW`, `MEDIUM`, `HIGH`, `URGENT`). Each accepts a single, case-sensitive value. Both filters use AND semantics: `GET /api/tickets?status=OPEN&priority=HIGH&page=0&size=10` returns only open, high-priority Tickets. Filtering occurs before pagination; omitting both filters leaves status and priority unrestricted.
+
+Sorting accepts `sortBy` (`createdAt`, `updatedAt`, `title`) and `direction` (`asc`, `desc`), defaulting to `createdAt` and `desc`. Each accepts one case-sensitive value. For example, `GET /api/tickets?sortBy=title&direction=asc` orders by title ascending, then ID ascending. The ID tie-breaker always uses the selected direction.
+
+Optional `q` performs case-insensitive substring search in title or description. A supplied value must contain non-whitespace text and be at most 100 characters before trimming; surrounding whitespace is trimmed. `%`, `_` and `\` match literally. Search combines with status and priority using AND, for example `GET /api/tickets?q=login&status=OPEN&priority=HIGH`.
 
 Invalid input returns `400`; a missing Ticket returns `404`. Errors use `application/problem+json`, with field details for validation failures.
 

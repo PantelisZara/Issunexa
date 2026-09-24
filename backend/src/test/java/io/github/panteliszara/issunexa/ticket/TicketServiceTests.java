@@ -3,7 +3,11 @@ package io.github.panteliszara.issunexa.ticket;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -11,14 +15,15 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -80,79 +85,64 @@ class TicketServiceTests {
         verify(ticketRepository).findById(missingId);
     }
 
-    @Test
-    void listsTicketsWithPaginationAndDeterministicOrder() {
+    @ParameterizedTest(name = "{0} {1}")
+    @MethodSource("sortOrders")
+    void listsTicketsWithPaginationAndDeterministicOrder(
+            TicketSortField sortField, TicketSortDirection direction, Sort.Order primaryOrder, Sort.Order idOrder) {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
                 TicketStatus.OPEN, TicketPriority.HIGH);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
-        when(ticketRepository.findAll(any(Pageable.class))).thenReturn(repositoryResult);
-
-        Page<Ticket> result = ticketService.listTickets(2, 10, null, null);
-
-        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(ticketRepository).findAll(pageableCaptor.capture());
-        assertListingPageable(pageableCaptor.getValue());
-        assertThat(result).isSameAs(repositoryResult);
-        verifyNoMoreInteractions(ticketRepository);
-    }
-
-    @Test
-    void listsTicketsByStatusWithPaginationAndDeterministicOrder() {
-        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.IN_PROGRESS, TicketPriority.HIGH);
-        Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
-        when(ticketRepository.findAllByStatus(eq(TicketStatus.IN_PROGRESS), any(Pageable.class)))
+        when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(repositoryResult);
 
-        Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, null);
+        Page<Ticket> result = ticketService.listTickets(2, 10, null, null, null, sortField, direction);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(ticketRepository).findAllByStatus(eq(TicketStatus.IN_PROGRESS), pageableCaptor.capture());
-        assertListingPageable(pageableCaptor.getValue());
+        verify(ticketRepository).findAll(ArgumentMatchers.<Specification<Ticket>>notNull(), pageableCaptor.capture());
+        assertListingPageable(pageableCaptor.getValue(), primaryOrder, idOrder);
         assertThat(result).isSameAs(repositoryResult);
         verifyNoMoreInteractions(ticketRepository);
     }
 
     @Test
-    void listsTicketsByPriorityWithPaginationAndDeterministicOrder() {
-        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH);
-        Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
-        when(ticketRepository.findAllByPriority(eq(TicketPriority.HIGH), any(Pageable.class)))
-                .thenReturn(repositoryResult);
-
-        Page<Ticket> result = ticketService.listTickets(2, 10, null, TicketPriority.HIGH);
-
-        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(ticketRepository).findAllByPriority(eq(TicketPriority.HIGH), pageableCaptor.capture());
-        assertListingPageable(pageableCaptor.getValue());
-        assertThat(result).isSameAs(repositoryResult);
-        verifyNoMoreInteractions(ticketRepository);
-    }
-
-    @Test
-    void listsTicketsByStatusAndPriorityWithPaginationAndDeterministicOrder() {
-        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+    void listsTicketsWithAllSearchCriteriaAndReturnsRepositoryPage() {
+        Ticket ticket = new Ticket("Login failure", "The account is unreachable.",
                 TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
-        when(ticketRepository.findAllByStatusAndPriority(
-                eq(TicketStatus.IN_PROGRESS), eq(TicketPriority.URGENT), any(Pageable.class)))
+        when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(repositoryResult);
 
-        Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
+        Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, "login",
+                TicketSortField.UPDATED_AT, TicketSortDirection.ASC);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(ticketRepository).findAllByStatusAndPriority(
-                eq(TicketStatus.IN_PROGRESS), eq(TicketPriority.URGENT), pageableCaptor.capture());
-        assertListingPageable(pageableCaptor.getValue());
+        verify(ticketRepository).findAll(ArgumentMatchers.<Specification<Ticket>>notNull(), pageableCaptor.capture());
+        assertListingPageable(pageableCaptor.getValue(), Sort.Order.asc("updatedAt"), Sort.Order.asc("id"));
         assertThat(result).isSameAs(repositoryResult);
         verifyNoMoreInteractions(ticketRepository);
     }
 
-    private static void assertListingPageable(Pageable pageable) {
+    static Stream<Arguments> sortOrders() {
+        return Stream.of(
+                Arguments.of(TicketSortField.CREATED_AT, TicketSortDirection.DESC,
+                        Sort.Order.desc("createdAt"), Sort.Order.desc("id")),
+                Arguments.of(TicketSortField.CREATED_AT, TicketSortDirection.ASC,
+                        Sort.Order.asc("createdAt"), Sort.Order.asc("id")),
+                Arguments.of(TicketSortField.UPDATED_AT, TicketSortDirection.DESC,
+                        Sort.Order.desc("updatedAt"), Sort.Order.desc("id")),
+                Arguments.of(TicketSortField.UPDATED_AT, TicketSortDirection.ASC,
+                        Sort.Order.asc("updatedAt"), Sort.Order.asc("id")),
+                Arguments.of(TicketSortField.TITLE, TicketSortDirection.ASC,
+                        Sort.Order.asc("title"), Sort.Order.asc("id")),
+                Arguments.of(TicketSortField.TITLE, TicketSortDirection.DESC,
+                        Sort.Order.desc("title"), Sort.Order.desc("id"))
+        );
+    }
+
+    private static void assertListingPageable(Pageable pageable, Sort.Order primaryOrder, Sort.Order idOrder) {
         assertThat(pageable.getPageNumber()).isEqualTo(2);
         assertThat(pageable.getPageSize()).isEqualTo(10);
-        assertThat(pageable.getSort()).containsExactly(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+        assertThat(pageable.getSort()).containsExactly(primaryOrder, idOrder);
     }
 
 }

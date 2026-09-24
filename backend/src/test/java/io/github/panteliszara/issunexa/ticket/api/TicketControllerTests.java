@@ -4,6 +4,8 @@ import io.github.panteliszara.issunexa.ticket.Ticket;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketService;
+import io.github.panteliszara.issunexa.ticket.TicketSortDirection;
+import io.github.panteliszara.issunexa.ticket.TicketSortField;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -21,6 +23,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.time.Instant;
 import java.util.List;
@@ -205,9 +208,9 @@ class TicketControllerTests {
     }
 
     @Test
-    void listsTicketsWithDefaultPagination() throws Exception {
+    void listsTicketsWithDefaultPaginationAndSorting() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20, null, null))
+        when(ticketService.listTickets(0, 20, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
         mockMvc.perform(get("/api/tickets"))
@@ -225,13 +228,13 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "OPEN")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(0, 20, null, null);
+        verify(ticketService).listTickets(0, 20, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC);
     }
 
     @Test
     void listsTicketsWithCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS);
-        when(ticketService.listTickets(2, 10, null, null))
+        when(ticketService.listTickets(2, 10, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 45));
 
         mockMvc.perform(get("/api/tickets").param("page", "2").param("size", "10"))
@@ -249,13 +252,14 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "IN_PROGRESS")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(2, 10, null, null);
+        verify(ticketService).listTickets(2, 10, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC);
     }
 
     @Test
     void listsTicketsByStatus() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20, TicketStatus.OPEN, null))
+        when(ticketService.listTickets(0, 20, TicketStatus.OPEN, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
         mockMvc.perform(get("/api/tickets").param("status", "OPEN"))
@@ -267,13 +271,15 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.totalElements").value(1));
 
-        verify(ticketService).listTickets(0, 20, TicketStatus.OPEN, null);
+        verify(ticketService).listTickets(0, 20, TicketStatus.OPEN, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
     }
 
     @Test
     void listsTicketsByPriority() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20, null, TicketPriority.HIGH))
+        when(ticketService.listTickets(0, 20, null, TicketPriority.HIGH, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
         mockMvc.perform(get("/api/tickets").param("priority", "HIGH"))
@@ -285,13 +291,15 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.totalElements").value(1));
 
-        verify(ticketService).listTickets(0, 20, null, TicketPriority.HIGH);
+        verify(ticketService).listTickets(0, 20, null, TicketPriority.HIGH, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
     }
 
     @Test
     void listsTicketsByStatusAndPriorityWithCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
-        when(ticketService.listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT))
+        when(ticketService.listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(1, 10), 11));
 
         mockMvc.perform(get("/api/tickets")
@@ -314,12 +322,143 @@ class TicketControllerTests {
                         """.formatted(ticketJson("Printer offline", "IN_PROGRESS", "URGENT")),
                         JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
+        verify(ticketService).listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+    }
+
+    @ParameterizedTest(name = "sortBy={0}, direction={1}")
+    @CsvSource({
+            "createdAt, asc, CREATED_AT, ASC",
+            "createdAt, desc, CREATED_AT, DESC",
+            "updatedAt, asc, UPDATED_AT, ASC",
+            "updatedAt, desc, UPDATED_AT, DESC",
+            "title, asc, TITLE, ASC",
+            "title, desc, TITLE, DESC",
+            "title, , TITLE, DESC",
+            ", asc, CREATED_AT, ASC"
+    })
+    void listsTicketsWithControlledSorting(
+            String sortBy, String direction, TicketSortField expectedField, TicketSortDirection expectedDirection)
+            throws Exception {
+        when(ticketService.listTickets(0, 20, null, null, null, expectedField, expectedDirection))
+                .thenReturn(Page.empty(PageRequest.of(0, 20)));
+        MockHttpServletRequestBuilder request = get("/api/tickets");
+        if (sortBy != null) {
+            request.param("sortBy", sortBy);
+        }
+        if (direction != null) {
+            request.param("direction", direction);
+        }
+
+        mockMvc.perform(request)
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {
+                          "content":[],
+                          "page":0,
+                          "size":20,
+                          "totalElements":0,
+                          "totalPages":0,
+                          "first":true,
+                          "last":true
+                        }
+                        """, JsonCompareMode.STRICT));
+
+        verify(ticketService).listTickets(0, 20, null, null, null, expectedField, expectedDirection);
+    }
+
+    @ParameterizedTest
+    @MethodSource("validSearchQueries")
+    void searchesWithNormalizedQuery(String input, String expectedQuery) throws Exception {
+        when(ticketService.listTickets(0, 20, null, null, expectedQuery,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
+                .thenReturn(Page.empty(PageRequest.of(0, 20)));
+
+        mockMvc.perform(get("/api/tickets").param("q", input))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content").isEmpty())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20));
+
+        verify(ticketService).listTickets(0, 20, null, null, expectedQuery,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+    }
+
+    static Stream<Arguments> validSearchQueries() {
+        return Stream.of(
+                Arguments.of("login", "login"),
+                Arguments.of("  login  ", "login"),
+                Arguments.of("q".repeat(100), "q".repeat(100))
+        );
+    }
+
+    @Test
+    void listsTicketsWithSearchFiltersSortingAndCustomPagination() throws Exception {
+        Ticket ticket = persistedTicket("Login failure", TicketStatus.OPEN);
+        when(ticketService.listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, "login",
+                TicketSortField.UPDATED_AT, TicketSortDirection.ASC))
+                .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(1, 10), 11));
+
+        mockMvc.perform(get("/api/tickets")
+                        .param("status", "OPEN")
+                        .param("priority", "HIGH")
+                        .param("q", "login")
+                        .param("sortBy", "updatedAt")
+                        .param("direction", "asc")
+                        .param("page", "1")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {
+                          "content":[%s],
+                          "page":1,
+                          "size":10,
+                          "totalElements":11,
+                          "totalPages":2,
+                          "first":false,
+                          "last":true
+                        }
+                        """.formatted(ticketJson("Login failure", "OPEN")), JsonCompareMode.STRICT));
+
+        verify(ticketService).listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, "login",
+                TicketSortField.UPDATED_AT, TicketSortDirection.ASC);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidSearchQueries")
+    void rejectsInvalidSearchBeforeCallingService(String query, String message) throws Exception {
+        mockMvc.perform(get("/api/tickets").param("q", query))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {
+                          "type":"about:blank",
+                          "title":"Validation failed",
+                          "status":400,
+                          "detail":"Request validation failed.",
+                          "instance":"/api/tickets",
+                          "errors":[{"field":"q","message":"%s"}]
+                        }
+                        """.formatted(message), JsonCompareMode.STRICT));
+
+        verifyNoInteractions(ticketService);
+    }
+
+    static Stream<Arguments> invalidSearchQueries() {
+        return Stream.of(
+                Arguments.of("", "must not be blank"),
+                Arguments.of(" \t\r\n ", "must not be blank"),
+                Arguments.of("\u2003", "must not be blank"),
+                Arguments.of("q".repeat(101), "size must be between 0 and 100")
+        );
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("invalidFilters")
-    void returnsSafeProblemDetailForInvalidFilters(String scenario, String parameter, String[] values)
+    @MethodSource({"invalidFilters", "invalidSortingParameters", "invalidSearchParameters"})
+    void returnsSafeProblemDetailForInvalidListingParameters(String scenario, String parameter, String[] values)
             throws Exception {
         mockMvc.perform(get("/api/tickets").param(parameter, values))
                 .andExpect(status().isBadRequest())
@@ -356,6 +495,42 @@ class TicketControllerTests {
         );
     }
 
+    static Stream<Arguments> invalidSortingParameters() {
+        return Stream.of(
+                Arguments.of("unknown sort field", "sortBy", new String[]{"unknown"}),
+                Arguments.of("priority sort", "sortBy", new String[]{"priority"}),
+                Arguments.of("status sort", "sortBy", new String[]{"status"}),
+                Arguments.of("ID primary sort", "sortBy", new String[]{"id"}),
+                Arguments.of("description sort", "sortBy", new String[]{"description"}),
+                Arguments.of("sort field enum name", "sortBy", new String[]{"CREATED_AT"}),
+                Arguments.of("uppercase title", "sortBy", new String[]{"TITLE"}),
+                Arguments.of("invalid direction", "direction", new String[]{"sideways"}),
+                Arguments.of("uppercase ascending", "direction", new String[]{"ASC"}),
+                Arguments.of("uppercase descending", "direction", new String[]{"DESC"}),
+                Arguments.of("empty sort field", "sortBy", new String[]{""}),
+                Arguments.of("blank sort field", "sortBy", new String[]{" "}),
+                Arguments.of("empty direction", "direction", new String[]{""}),
+                Arguments.of("blank direction", "direction", new String[]{" "}),
+                Arguments.of("padded sort field", "sortBy", new String[]{" title"}),
+                Arguments.of("padded direction", "direction", new String[]{"asc "}),
+                Arguments.of("comma-separated sort fields", "sortBy", new String[]{"title,createdAt"}),
+                Arguments.of("comma-separated directions", "direction", new String[]{"asc,desc"}),
+                Arguments.of("multiple sort fields", "sortBy", new String[]{"title", "createdAt"}),
+                Arguments.of("multiple directions", "direction", new String[]{"asc", "desc"}),
+                Arguments.of("repeated sort field", "sortBy", new String[]{"title", "title"}),
+                Arguments.of("repeated direction", "direction", new String[]{"asc", "asc"}),
+                Arguments.of("array-style sort fields", "sortBy[]", new String[]{"title", "createdAt"}),
+                Arguments.of("array-style directions", "direction[]", new String[]{"asc", "desc"})
+        );
+    }
+
+    static Stream<Arguments> invalidSearchParameters() {
+        return Stream.of(
+                Arguments.of("multiple search values", "q", new String[]{"login", "printer"}),
+                Arguments.of("array-style search values", "q[]", new String[]{"login", "printer"})
+        );
+    }
+
     @ParameterizedTest
     @CsvSource({
             "0, 20, 0, 0, true",
@@ -365,7 +540,8 @@ class TicketControllerTests {
     void returnsEmptyPageWithMetadata(int page, int size, long totalElements, int totalPages, boolean first)
             throws Exception {
         Page<Ticket> tickets = new PageImpl<>(List.of(), PageRequest.of(page, size), totalElements);
-        when(ticketService.listTickets(page, size, null, null)).thenReturn(tickets);
+        when(ticketService.listTickets(page, size, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC)).thenReturn(tickets);
 
         mockMvc.perform(get("/api/tickets")
                         .param("page", Integer.toString(page))
@@ -384,7 +560,8 @@ class TicketControllerTests {
                         }
                         """.formatted(page, size, totalElements, totalPages, first), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(page, size, null, null);
+        verify(ticketService).listTickets(page, size, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
     }
 
     @ParameterizedTest(name = "rejects {0}={1}")

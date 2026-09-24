@@ -119,8 +119,10 @@ class TicketRepositoryTests {
                 """, firstAtLatestTime.getId(), secondAtLatestTime.getId());
         entityManager.clear();
 
-        Page<Ticket> firstPage = ticketService.listTickets(0, 2, null, null);
-        Page<Ticket> secondPage = ticketService.listTickets(1, 2, null, null);
+        Page<Ticket> firstPage = ticketService.listTickets(0, 2, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+        Page<Ticket> secondPage = ticketService.listTickets(1, 2, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
 
         assertThat(firstPage.getContent()).extracting(Ticket::getId)
                 .containsExactly(secondAtLatestTime.getId(), firstAtLatestTime.getId());
@@ -141,8 +143,10 @@ class TicketRepositoryTests {
             TicketStatus status, TicketPriority priority, List<String> expectedTitles) {
         persistFilterFixtures();
 
-        Page<Ticket> firstPage = ticketService.listTickets(0, 2, status, priority);
-        Page<Ticket> secondPage = ticketService.listTickets(1, 2, status, priority);
+        Page<Ticket> firstPage = ticketService.listTickets(0, 2, status, priority, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+        Page<Ticket> secondPage = ticketService.listTickets(1, 2, status, priority, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
 
         assertThat(firstPage.getContent()).extracting(Ticket::getTitle)
                 .containsExactlyElementsOf(expectedTitles.subList(0, 2));
@@ -177,13 +181,89 @@ class TicketRepositoryTests {
     void returnsEmptyPageWhenNoTicketMatchesBothFilters() {
         persistFilterFixtures();
 
-        Page<Ticket> page = ticketService.listTickets(0, 2, TicketStatus.CLOSED, TicketPriority.HIGH);
+        Page<Ticket> page = ticketService.listTickets(0, 2, TicketStatus.CLOSED, TicketPriority.HIGH, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
 
         assertThat(page.getContent()).isEmpty();
         assertThat(page.getTotalElements()).isZero();
         assertThat(page.getTotalPages()).isZero();
         assertThat(page.isFirst()).isTrue();
         assertThat(page.isLast()).isTrue();
+    }
+
+    @ParameterizedTest(name = "sort={0} {1}, status={2}, priority={3}")
+    @MethodSource("customSortCases")
+    void sortsAndFiltersBeforePaginationWithMatchingIdTieBreaker(
+            TicketSortField sortField, TicketSortDirection direction,
+            TicketStatus status, TicketPriority priority, List<Integer> expectedIndexes) {
+        List<Ticket> fixtures = persistSortingFixtures();
+        List<Long> expectedIds = expectedIndexes.stream().map(index -> fixtures.get(index).getId()).toList();
+        assertTicketPages(expectedIds, status, priority, null, sortField, direction);
+    }
+
+    static Stream<Arguments> customSortCases() {
+        return Stream.of(
+                Arguments.of(TicketSortField.CREATED_AT, TicketSortDirection.ASC, null, null,
+                        List.of(3, 1, 2, 4, 0, 5)),
+                Arguments.of(TicketSortField.UPDATED_AT, TicketSortDirection.DESC, null, null,
+                        List.of(5, 3, 2, 0, 4, 1)),
+                Arguments.of(TicketSortField.TITLE, TicketSortDirection.ASC, null, null,
+                        List.of(1, 0, 2, 3, 4, 5)),
+                Arguments.of(TicketSortField.UPDATED_AT, TicketSortDirection.ASC, TicketStatus.OPEN, null,
+                        List.of(1, 4, 0, 2, 5)),
+                Arguments.of(TicketSortField.TITLE, TicketSortDirection.DESC, null, TicketPriority.HIGH,
+                        List.of(5, 4, 3, 2, 0)),
+                Arguments.of(TicketSortField.UPDATED_AT, TicketSortDirection.DESC, TicketStatus.OPEN, TicketPriority.HIGH,
+                        List.of(5, 2, 0, 4))
+        );
+    }
+
+    @ParameterizedTest(name = "q={0}, status={1}, priority={2}")
+    @MethodSource("searchCases")
+    void searchesTitleOrDescriptionWithFiltersBeforeSortedPagination(
+            String query, TicketStatus status, TicketPriority priority, List<Integer> expectedIndexes) {
+        List<Ticket> fixtures = persistSearchFixtures();
+        List<Long> expectedIds = expectedIndexes.stream().map(index -> fixtures.get(index).getId()).toList();
+
+        assertTicketPages(expectedIds, status, priority, query, TicketSortField.TITLE, TicketSortDirection.ASC);
+    }
+
+    static Stream<Arguments> searchCases() {
+        return Stream.of(
+                Arguments.of("LoGiN", null, null, List.of(0, 5, 1, 2, 3)),
+                Arguments.of("login", TicketStatus.OPEN, null, List.of(0, 5, 1, 2)),
+                Arguments.of("LOGIN", null, TicketPriority.HIGH, List.of(0, 5, 1, 3)),
+                Arguments.of("login", TicketStatus.OPEN, TicketPriority.HIGH, List.of(0, 5, 1)),
+                Arguments.of("missing", null, null, List.of())
+        );
+    }
+
+    @ParameterizedTest(name = "literal search for {0}")
+    @MethodSource("literalSearchCases")
+    void treatsLikeWildcardsAndEscapeCharacterLiterally(
+            String query, String matchingTitle, String matchingDescription, String decoyTitle, String decoyDescription) {
+        Ticket matching = new Ticket(matchingTitle, matchingDescription, TicketStatus.OPEN, TicketPriority.HIGH);
+        Ticket decoy = new Ticket(decoyTitle, decoyDescription, TicketStatus.OPEN, TicketPriority.HIGH);
+        ticketRepository.saveAllAndFlush(List.of(matching, decoy));
+        entityManager.clear();
+
+        Page<Ticket> page = ticketService.listTickets(0, 20, null, null, query,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+
+        assertThat(page.getContent()).extracting(Ticket::getId).containsExactly(matching.getId());
+        assertThat(page.getTotalElements()).isEqualTo(1);
+        assertThat(page.getTotalPages()).isEqualTo(1);
+    }
+
+    static Stream<Arguments> literalSearchCases() {
+        return Stream.of(
+                Arguments.of("100%", "Progress at 100% complete", "Literal percentage marker",
+                        "Progress at 1000 complete", "No percentage marker"),
+                Arguments.of("user_name", "Account field", "Missing USER_NAME value",
+                        "Another account field", "Missing userXname value"),
+                Arguments.of("folder\\", "Archive", "Path ends in folder\\",
+                        "Archive decoy", "Path ends in folder%")
+        );
     }
 
     @ParameterizedTest(name = "rejects invalid enum value using {2}")
@@ -204,6 +284,41 @@ class TicketRepositoryTests {
                 });
     }
 
+    private void assertTicketPages(List<Long> expectedIds, TicketStatus status, TicketPriority priority, String query,
+            TicketSortField sortField, TicketSortDirection direction) {
+        int size = 2;
+        int totalPages = Math.ceilDiv(expectedIds.size(), size);
+        int pagesToRead = Math.max(1, totalPages);
+
+        for (int pageNumber = 0; pageNumber < pagesToRead; pageNumber++) {
+            Page<Ticket> page = ticketService.listTickets(pageNumber, size, status, priority, query, sortField, direction);
+
+            int start = pageNumber * size;
+            int end = Math.min(start + size, expectedIds.size());
+            assertThat(page.getContent()).extracting(Ticket::getId)
+                    .containsExactlyElementsOf(expectedIds.subList(start, end));
+            assertThat(page.getNumber()).isEqualTo(pageNumber);
+            assertThat(page.getSize()).isEqualTo(size);
+            assertThat(page.getTotalElements()).isEqualTo(expectedIds.size());
+            assertThat(page.getTotalPages()).isEqualTo(totalPages);
+            assertThat(page.isFirst()).isEqualTo(pageNumber == 0);
+            assertThat(page.isLast()).isEqualTo(pageNumber == pagesToRead - 1);
+        }
+    }
+
+    private List<Ticket> persistSearchFixtures() {
+        List<Ticket> fixtures = ticketRepository.saveAllAndFlush(List.of(
+                new Ticket("Alpha LOGIN failure", "Account cannot be reached.", TicketStatus.OPEN, TicketPriority.HIGH),
+                new Ticket("Bravo access issue", "User reports a login failure.", TicketStatus.OPEN, TicketPriority.HIGH),
+                new Ticket("Charlie account issue", "Another login problem.", TicketStatus.OPEN, TicketPriority.LOW),
+                new Ticket("Delta permissions", "LOGIN fails after reset.", TicketStatus.CLOSED, TicketPriority.HIGH),
+                new Ticket("Echo network issue", "Connection reset before sign-in.", TicketStatus.OPEN, TicketPriority.HIGH),
+                new Ticket("Alpha LOGIN failure", "Another LOGIN problem.", TicketStatus.OPEN, TicketPriority.HIGH)
+        ));
+        entityManager.clear();
+        return fixtures;
+    }
+
     private void persistFilterFixtures() {
         persistFilterTicket("Old open/high", TicketStatus.OPEN, TicketPriority.HIGH, "2000-01-01T00:00:00Z");
         persistFilterTicket("First tied open/high", TicketStatus.OPEN, TicketPriority.HIGH, "2002-01-01T00:00:00Z");
@@ -219,6 +334,34 @@ class TicketRepositoryTests {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Filter fixture", status, priority));
         jdbcTemplate.update("UPDATE tickets SET created_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?",
                 createdAt, ticket.getId());
+    }
+
+    private List<Ticket> persistSortingFixtures() {
+        List<Ticket> fixtures = List.of(
+                persistSortingTicket("Bravo", TicketStatus.OPEN, TicketPriority.HIGH,
+                        "2002-01-01T00:00:00Z", "2012-01-01T00:00:00Z"),
+                persistSortingTicket("Alpha", TicketStatus.OPEN, TicketPriority.LOW,
+                        "2000-01-01T00:00:00Z", "2010-01-01T00:00:00Z"),
+                persistSortingTicket("Bravo", TicketStatus.OPEN, TicketPriority.HIGH,
+                        "2001-01-01T00:00:00Z", "2012-01-01T00:00:00Z"),
+                persistSortingTicket("Charlie", TicketStatus.CLOSED, TicketPriority.HIGH,
+                        "1999-01-01T00:00:00Z", "2013-01-01T00:00:00Z"),
+                persistSortingTicket("Delta", TicketStatus.OPEN, TicketPriority.HIGH,
+                        "2001-01-01T00:00:00Z", "2011-01-01T00:00:00Z"),
+                persistSortingTicket("Echo", TicketStatus.OPEN, TicketPriority.HIGH,
+                        "2003-01-01T00:00:00Z", "2014-01-01T00:00:00Z")
+        );
+        entityManager.clear();
+        return fixtures;
+    }
+
+    private Ticket persistSortingTicket(String title, TicketStatus status, TicketPriority priority,
+            String createdAt, String updatedAt) {
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Sorting fixture", status, priority));
+        jdbcTemplate.update("""
+                UPDATE tickets SET created_at = CAST(? AS TIMESTAMPTZ), updated_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?
+                """, createdAt, updatedAt, ticket.getId());
+        return ticket;
     }
 
 }
