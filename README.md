@@ -37,11 +37,13 @@ cd backend
 ./mvnw package
 ```
 
-The integration tests share a disposable PostgreSQL 18.6 container and verify Ticket persistence, timestamps and database enum constraints against the Flyway-created schema. Each test rolls back its data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the container after the suite.
+The integration tests use disposable PostgreSQL 18.6 containers to verify Ticket persistence, timestamps, database enum constraints and generated API documentation against the Flyway-created schema. Persistence tests roll back their data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the containers after the tests.
 
 Service unit tests and MVC controller slice tests run without PostgreSQL. `package` compiles the application, runs the full test suite and creates an executable JAR. The full suite requires the container runtime and fails if it is unavailable.
 
 ## Ticket API
+
+When the application is running locally, OpenAPI JSON is available at `/v3/api-docs`. Swagger UI is available at `/swagger-ui.html`, which redirects to `/swagger-ui/index.html`.
 
 | Method | Path | Successful response |
 | --- | --- | --- |

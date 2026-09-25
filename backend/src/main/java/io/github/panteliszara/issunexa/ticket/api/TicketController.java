@@ -6,11 +6,21 @@ import io.github.panteliszara.issunexa.ticket.TicketService;
 import io.github.panteliszara.issunexa.ticket.TicketSortDirection;
 import io.github.panteliszara.issunexa.ticket.TicketSortField;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.WebDataBinder;
@@ -31,6 +41,11 @@ import java.net.URI;
 
 @RestController
 @RequestMapping("/api/tickets")
+@Tag(name = "Tickets")
+@ApiResponse(responseCode = "400", description = "Invalid request body or parameter. RFC 9457 Problem Detail; "
+        + "validation failures include an errors array with field and message entries.",
+        content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                schema = @Schema(implementation = ProblemDetail.class)))
 public class TicketController {
 
     private final TicketService ticketService;
@@ -40,6 +55,12 @@ public class TicketController {
     }
 
     @PostMapping
+    @Operation(summary = "Create a Ticket", description = "Creates a Ticket with initial status OPEN.")
+    @ApiResponse(responseCode = "201", description = "Ticket created.",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = TicketResponse.class)),
+            headers = @Header(name = "Location", description = "URL of the created Ticket.",
+                    schema = @Schema(type = "string", format = "uri")))
     public ResponseEntity<TicketResponse> createTicket(@Valid @RequestBody CreateTicketRequest request) {
         Ticket ticket = ticketService.createTicket(request.title(), request.description(), request.priority());
         URI location = ServletUriComponentsBuilder.fromCurrentRequestUri()
@@ -50,24 +71,65 @@ public class TicketController {
     }
 
     @GetMapping("/{id}")
-    public TicketResponse getTicket(@PathVariable Long id) {
+    @Operation(summary = "Get a Ticket")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ticket found.",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = TicketResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Ticket not found. RFC 9457 Problem Detail.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public TicketResponse getTicket(@Parameter(description = "Ticket ID.", example = "42") @PathVariable Long id) {
         return TicketResponse.from(ticketService.getTicket(id));
     }
 
     @PatchMapping("/{id}/status")
-    public TicketResponse changeStatus(@PathVariable Long id, @Valid @RequestBody UpdateTicketStatusRequest request) {
+    @Operation(summary = "Change Ticket status", description = "Allowed transitions: OPEN → IN_PROGRESS; "
+            + "IN_PROGRESS → RESOLVED; RESOLVED → IN_PROGRESS; RESOLVED → CLOSED. "
+            + "CLOSED is terminal. All other transitions, including the current status, are rejected.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ticket status changed.",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = TicketResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Ticket not found. RFC 9457 Problem Detail.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Invalid ticket status transition. RFC 9457 Problem Detail.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public TicketResponse changeStatus(@Parameter(description = "Ticket ID.", example = "42") @PathVariable Long id,
+            @Valid @RequestBody UpdateTicketStatusRequest request) {
         return TicketResponse.from(ticketService.changeStatus(id, request.status()));
     }
 
     @GetMapping
+    @Operation(summary = "List Tickets", description = "Status, priority and text search criteria combine using AND. "
+            + "Filtering precedes pagination. Sorting uses ID as a secondary key in the selected direction.")
+    @ApiResponse(responseCode = "200", description = "Matching Tickets with page metadata.",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = TicketPageResponse.class)))
     public TicketPageResponse listTickets(
+            @Parameter(description = "Zero-based page number.")
             @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
+            @Parameter(description = "Maximum number of Tickets per page.")
             @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size,
+            @Parameter(description = "Optional, case-sensitive status filter.")
             @RequestParam(name = "status", required = false) TicketStatus status,
+            @Parameter(description = "Optional, case-sensitive priority filter.")
             @RequestParam(name = "priority", required = false) TicketPriority priority,
+            @Parameter(description = "Case-insensitive substring search in title OR description. "
+                    + "Leading and trailing whitespace is trimmed. A supplied value must be nonblank "
+                    + "and at most 100 characters before trimming.")
             @RequestParam(name = "q", required = false) @Size(max = 100)
             @Pattern(regexp = "(?s).*\\P{javaWhitespace}.*", message = "must not be blank") String q,
+            @Parameter(description = "Primary sort field.", schema = @Schema(implementation = String.class,
+                    allowableValues = {"createdAt", "updatedAt", "title"}, defaultValue = "createdAt"))
             @RequestParam(name = "sortBy", defaultValue = "createdAt") TicketSortField sortBy,
+            @Parameter(description = "Direction for both the primary field and the ID tie-breaker.",
+                    schema = @Schema(implementation = String.class,
+                            allowableValues = {"asc", "desc"}, defaultValue = "desc"))
             @RequestParam(name = "direction", defaultValue = "desc") TicketSortDirection direction) {
         String query = q == null ? null : q.strip();
         return TicketPageResponse.from(ticketService.listTickets(page, size, status, priority, query, sortBy, direction));
