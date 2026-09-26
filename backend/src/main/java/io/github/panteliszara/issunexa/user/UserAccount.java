@@ -40,7 +40,7 @@ public class UserAccount {
     }
 
     public UserAccount(String email, String displayName, String passwordHash) {
-        this.email = requireNonblank(email, "email").strip().toLowerCase(Locale.ROOT);
+        this.email = normalizeEmail(email);
         this.displayName = requireNonblank(displayName, "displayName").strip();
         this.passwordHash = requireNonblank(passwordHash, "passwordHash");
     }
@@ -67,6 +67,10 @@ public class UserAccount {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public static String normalizeEmail(String email) {
+        return requireNonblank(email, "email").strip().toLowerCase(Locale.ROOT);
     }
 
     private static String requireNonblank(String value, String field) {

@@ -8,11 +8,13 @@ import io.github.panteliszara.issunexa.ticket.TicketSortField;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -42,10 +44,16 @@ import java.net.URI;
 @RestController
 @RequestMapping("/api/tickets")
 @Tag(name = "Tickets")
-@ApiResponse(responseCode = "400", description = "Invalid request body or parameter. RFC 9457 Problem Detail; "
-        + "validation failures include an errors array with field and message entries.",
-        content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                schema = @Schema(implementation = ProblemDetail.class)))
+@SecurityRequirement(name = "sessionAuth")
+@ApiResponses({
+        @ApiResponse(responseCode = "400", description = "Invalid request body or parameter. RFC 9457 Problem Detail; "
+                + "validation failures include an errors array with field and message entries.",
+                content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "401", description = "Authentication required.",
+                content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        schema = @Schema(implementation = ProblemDetail.class)))
+})
 public class TicketController {
 
     private final TicketService ticketService;
@@ -56,6 +64,11 @@ public class TicketController {
 
     @PostMapping
     @Operation(summary = "Create a Ticket", description = "Creates a Ticket with initial status OPEN.")
+    @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
+            description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
+    @ApiResponse(responseCode = "403", description = "Missing or invalid CSRF token.",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "201", description = "Ticket created.",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = TicketResponse.class)),
@@ -85,10 +98,15 @@ public class TicketController {
     }
 
     @PatchMapping("/{id}/status")
+    @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
+            description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
     @Operation(summary = "Change Ticket status", description = "Allowed transitions: OPEN → IN_PROGRESS; "
             + "IN_PROGRESS → RESOLVED; RESOLVED → IN_PROGRESS; RESOLVED → CLOSED. "
             + "CLOSED is terminal. All other transitions, including the current status, are rejected.")
     @ApiResponses({
+            @ApiResponse(responseCode = "403", description = "Missing or invalid CSRF token.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "200", description = "Ticket status changed.",
                     content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                             schema = @Schema(implementation = TicketResponse.class))),

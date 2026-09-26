@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -26,6 +27,14 @@ import java.util.stream.Stream;
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final URI ABOUT_BLANK = URI.create("about:blank");
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ProblemDetail handleAuthenticationFailure(AuthenticationException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Invalid email or password.");
+        problem.setType(ABOUT_BLANK);
+        problem.setTitle("Authentication failed");
+        return problem;
+    }
 
     @ExceptionHandler(TicketNotFoundException.class)
     public ProblemDetail handleTicketNotFound(TicketNotFoundException exception) {

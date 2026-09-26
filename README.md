@@ -37,9 +37,23 @@ cd backend
 ./mvnw package
 ```
 
-The integration tests use disposable PostgreSQL 18.6 containers to verify Ticket persistence, timestamps, database enum constraints and generated API documentation against the Flyway-created schema. Persistence tests roll back their data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the containers after the tests.
+The integration tests use disposable PostgreSQL 18.6 containers to verify persistence, database constraints, generated API documentation and session authentication against the Flyway-created schema. Security integration tests use real accounts, password verification and the full filter chain to check login, session fixation protection, CSRF rotation and logout. Persistence tests roll back their data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the containers after the tests.
 
-Service unit tests and MVC controller slice tests run without PostgreSQL. `package` compiles the application, runs the full test suite and creates an executable JAR. The full suite requires the container runtime and fails if it is unavailable.
+Service unit tests and MVC controller slice tests run without PostgreSQL. Ticket MVC slices isolate security filters to focus on binding, validation and HTTP contracts; full-context security tests cover authentication and CSRF separately. `package` compiles the application, runs the full test suite and creates an executable JAR. `./mvnw verify` also runs the complete suite, including security integration tests, in CI. The full suite requires the container runtime and fails if it is unavailable.
+
+## Authentication
+
+Authentication uses email, password and an HTTP session cookie. Accounts are provisioned internally; there is no registration API.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/auth/csrf` | Public endpoint returning `token` and `headerName`; responses must not be cached |
+| POST | `/api/auth/login` | Accepts JSON `email` and `password`; returns `204` on success |
+| POST | `/api/auth/logout` | Invalidates the authenticated session; returns `204` on success |
+
+Retain the session cookie when fetching a CSRF token and send the token in the returned header name on login. After successful login, retain the updated session cookie and fetch a fresh CSRF token. Unsafe requests, including Ticket creation, status changes and logout, require that token. Fetch a new token again after logout before another login.
+
+All Ticket endpoints require an authenticated session. GET requests do not require CSRF. Missing authentication returns `401` Problem Details; missing or invalid CSRF returns `403` Problem Details, including on login. Invalid credentials return the same generic `401` response for unknown emails and incorrect passwords. On unsafe requests, CSRF validation runs before the authentication requirement.
 
 ## Ticket API
 
@@ -97,7 +111,7 @@ Or run the packaged application:
 java -jar target/issunexa-0.0.1-SNAPSHOT.jar
 ```
 
-The application uses Spring Boot's default HTTP port, `8080`. A request to `/` returns HTTP 404. Stop the application with `Ctrl+C`.
+The application uses Spring Boot's default HTTP port, `8080`. OpenAPI and Swagger UI remain publicly accessible. Stop the application with `Ctrl+C`.
 
 ## Repository structure
 

@@ -1,8 +1,10 @@
 package io.github.panteliszara.issunexa.shared.openapi;
 
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,8 +16,14 @@ public class OpenApiConfiguration {
     public OpenAPI issunexaOpenApi() {
         return new OpenAPI().info(new Info()
                 .title("Issunexa API")
-                .description("Ticket creation, retrieval, paginated search and controlled status transitions.")
-                .version("0.0.1-SNAPSHOT"));
+                .description("Session authentication and Ticket creation, retrieval, search and status transitions. "
+                        + "Unsafe requests require the CSRF token returned by GET /api/auth/csrf.")
+                .version("0.0.1-SNAPSHOT"))
+                .components(new Components().addSecuritySchemes("sessionAuth", new SecurityScheme()
+                        .type(SecurityScheme.Type.APIKEY)
+                        .in(SecurityScheme.In.COOKIE)
+                        .name("JSESSIONID")
+                        .description("HTTP session cookie established by POST /api/auth/login.")));
     }
 
     @Bean
