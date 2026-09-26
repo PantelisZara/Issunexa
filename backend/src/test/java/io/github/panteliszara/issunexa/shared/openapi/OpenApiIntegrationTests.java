@@ -123,6 +123,7 @@ class OpenApiIntegrationTests {
                 .andExpect(jsonPath("$.security").doesNotExist())
                 .andExpect(jsonPath("$.components.securitySchemes").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
+        assertThat(json).doesNotContain("UserAccount", "passwordHash", "password_hash");
         return JsonPath.parse(json);
     }
 
