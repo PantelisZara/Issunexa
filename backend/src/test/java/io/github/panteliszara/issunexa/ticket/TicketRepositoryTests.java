@@ -1,6 +1,12 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.user.UserAccount;
+import io.github.panteliszara.issunexa.user.UserAccountRepository;
+import io.github.panteliszara.issunexa.user.UserAccountService;
+import io.github.panteliszara.issunexa.user.UserRole;
 import jakarta.persistence.EntityManager;
+import org.hibernate.Hibernate;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -41,15 +47,30 @@ class TicketRepositoryTests {
     private TicketService ticketService;
 
     @Autowired
+    private UserAccountRepository userAccountRepository;
+
+    @Autowired
+    private UserAccountService userAccountService;
+
+    @Autowired
     private EntityManager entityManager;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    private UserAccount requester;
+
+    @BeforeEach
+    void createRequester() {
+        requester = userAccountService.createUser("requester@example.com", "Requester",
+                "ticket integration test password", UserRole.REQUESTER);
+        userAccountRepository.flush();
+    }
+
     @Test
-    void persistsAndReloadsTicketWithGeneratedIdEnumsAndTimestamps() {
+    void persistsAndReloadsTicketWithLazyRequesterGeneratedIdEnumsAndTimestamps() {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.IN_PROGRESS, TicketPriority.HIGH);
+                TicketStatus.IN_PROGRESS, TicketPriority.HIGH, requester);
 
         ticketRepository.saveAndFlush(ticket);
         assertThat(ticket.getId()).isPositive();
@@ -63,15 +84,64 @@ class TicketRepositoryTests {
         assertThat(loaded.getPriority()).isEqualTo(TicketPriority.HIGH);
         assertThat(loaded.getCreatedAt()).isNotNull();
         assertThat(loaded.getUpdatedAt()).isEqualTo(loaded.getCreatedAt());
-        assertThat(jdbcTemplate.queryForMap("SELECT status, priority FROM tickets WHERE id = ?", ticket.getId()))
+        assertThat(Hibernate.isInitialized(loaded.getRequester())).isFalse();
+        assertThat(loaded.getRequester().getId()).isEqualTo(requester.getId());
+        assertThat(loaded.getRequester().getEmail()).isEqualTo(requester.getEmail());
+        assertThat(userAccountRepository.count()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForMap("SELECT status, priority, requester_id FROM tickets WHERE id = ?",
+                ticket.getId()))
                 .containsEntry("status", "IN_PROGRESS")
-                .containsEntry("priority", "HIGH");
+                .containsEntry("priority", "HIGH")
+                .containsEntry("requester_id", requester.getId());
+    }
+
+    @Test
+    void loadsHistoricalTicketWithoutRequester() {
+        // V4 intentionally preserves historical Tickets without inventing an owner.
+        Long id = jdbcTemplate.queryForObject("""
+                INSERT INTO tickets (title, description, status, priority, created_at, updated_at)
+                VALUES ('Historical ticket', 'Unknown requester', 'OPEN', 'LOW', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                RETURNING id
+                """, Long.class);
+        entityManager.clear();
+
+        Ticket historical = ticketRepository.findById(id).orElseThrow();
+
+        assertThat(historical.getTitle()).isEqualTo("Historical ticket");
+        assertThat(historical.getRequester()).isNull();
+    }
+
+    @Test
+    void rejectsNonexistentRequesterThroughSql() {
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, requester_id)
+                VALUES ('Invalid owner', 'Missing User', 'OPEN', 'HIGH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, -1)
+                """))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .rootCause()
+                .isInstanceOfSatisfying(PSQLException.class, exception -> {
+                    assertThat(exception.getSQLState()).isEqualTo("23503");
+                    assertThat(exception.getServerErrorMessage().getConstraint()).isEqualTo("fk_tickets_requester");
+                });
+    }
+
+    @Test
+    void deletingTicketDoesNotDeleteRequester() {
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "No connection",
+                TicketStatus.OPEN, TicketPriority.HIGH, requester));
+
+        ticketRepository.delete(ticket);
+        ticketRepository.flush();
+        entityManager.clear();
+
+        assertThat(ticketRepository.findById(ticket.getId())).isEmpty();
+        assertThat(userAccountRepository.findById(requester.getId())).isPresent();
     }
 
     @Test
     void updatesModificationTimeWhilePreservingCreationTime() {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "Original description",
-                TicketStatus.OPEN, TicketPriority.MEDIUM));
+                TicketStatus.OPEN, TicketPriority.MEDIUM, requester));
 
         Ticket existing = reloadWithHistoricalTimestamps(ticket);
         Instant createdAt = existing.getCreatedAt();
@@ -92,7 +162,7 @@ class TicketRepositoryTests {
     @Test
     void persistsStatusChangeThroughDirtyCheckingAndAdvancesOnlyUpdatedAt() {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH));
+                TicketStatus.OPEN, TicketPriority.HIGH, requester));
         Ticket existing = reloadWithHistoricalTimestamps(ticket);
         Instant createdAt = existing.getCreatedAt();
         Instant updatedAt = existing.getUpdatedAt();
@@ -111,12 +181,15 @@ class TicketRepositoryTests {
         assertThat(reloaded.getTitle()).isEqualTo("Printer offline");
         assertThat(reloaded.getDescription()).isEqualTo("The office printer is unreachable.");
         assertThat(reloaded.getPriority()).isEqualTo(TicketPriority.HIGH);
+        assertThat(reloaded.getRequester().getId()).isEqualTo(requester.getId());
+        assertThat(jdbcTemplate.queryForObject("SELECT requester_id FROM tickets WHERE id = ?",
+                Long.class, ticket.getId())).isEqualTo(requester.getId());
     }
 
     @Test
     void rejectedStatusChangeLeavesPersistedStatusAndTimestampsUnchanged() {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH));
+                TicketStatus.OPEN, TicketPriority.HIGH, requester));
         Ticket existing = reloadWithHistoricalTimestamps(ticket);
         Instant createdAt = existing.getCreatedAt();
         Instant updatedAt = existing.getUpdatedAt();
@@ -139,12 +212,12 @@ class TicketRepositoryTests {
 
     @Test
     void pagesTicketsByCreationTimeDescendingWithIdAsTieBreaker() {
-        Ticket oldest = new Ticket("Oldest", "Oldest ticket", TicketStatus.OPEN, TicketPriority.LOW);
+        Ticket oldest = new Ticket("Oldest", "Oldest ticket", TicketStatus.OPEN, TicketPriority.LOW, requester);
         Ticket firstAtLatestTime = new Ticket("Latest first", "First at latest time",
-                TicketStatus.OPEN, TicketPriority.HIGH);
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
         Ticket secondAtLatestTime = new Ticket("Latest second", "Second at latest time",
-                TicketStatus.OPEN, TicketPriority.HIGH);
-        Ticket middle = new Ticket("Middle", "Middle ticket", TicketStatus.OPEN, TicketPriority.MEDIUM);
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        Ticket middle = new Ticket("Middle", "Middle ticket", TicketStatus.OPEN, TicketPriority.MEDIUM, requester);
         ticketRepository.saveAllAndFlush(List.of(oldest, firstAtLatestTime, secondAtLatestTime, middle));
 
         jdbcTemplate.update("""
@@ -281,8 +354,9 @@ class TicketRepositoryTests {
     @MethodSource("literalSearchCases")
     void treatsLikeWildcardsAndEscapeCharacterLiterally(
             String query, String matchingTitle, String matchingDescription, String decoyTitle, String decoyDescription) {
-        Ticket matching = new Ticket(matchingTitle, matchingDescription, TicketStatus.OPEN, TicketPriority.HIGH);
-        Ticket decoy = new Ticket(decoyTitle, decoyDescription, TicketStatus.OPEN, TicketPriority.HIGH);
+        Ticket matching = new Ticket(matchingTitle, matchingDescription,
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        Ticket decoy = new Ticket(decoyTitle, decoyDescription, TicketStatus.OPEN, TicketPriority.HIGH, requester);
         ticketRepository.saveAllAndFlush(List.of(matching, decoy));
         entityManager.clear();
 
@@ -347,12 +421,18 @@ class TicketRepositoryTests {
 
     private List<Ticket> persistSearchFixtures() {
         List<Ticket> fixtures = ticketRepository.saveAllAndFlush(List.of(
-                new Ticket("Alpha LOGIN failure", "Account cannot be reached.", TicketStatus.OPEN, TicketPriority.HIGH),
-                new Ticket("Bravo access issue", "User reports a login failure.", TicketStatus.OPEN, TicketPriority.HIGH),
-                new Ticket("Charlie account issue", "Another login problem.", TicketStatus.OPEN, TicketPriority.LOW),
-                new Ticket("Delta permissions", "LOGIN fails after reset.", TicketStatus.CLOSED, TicketPriority.HIGH),
-                new Ticket("Echo network issue", "Connection reset before sign-in.", TicketStatus.OPEN, TicketPriority.HIGH),
-                new Ticket("Alpha LOGIN failure", "Another LOGIN problem.", TicketStatus.OPEN, TicketPriority.HIGH)
+                new Ticket("Alpha LOGIN failure", "Account cannot be reached.",
+                        TicketStatus.OPEN, TicketPriority.HIGH, requester),
+                new Ticket("Bravo access issue", "User reports a login failure.",
+                        TicketStatus.OPEN, TicketPriority.HIGH, requester),
+                new Ticket("Charlie account issue", "Another login problem.",
+                        TicketStatus.OPEN, TicketPriority.LOW, requester),
+                new Ticket("Delta permissions", "LOGIN fails after reset.",
+                        TicketStatus.CLOSED, TicketPriority.HIGH, requester),
+                new Ticket("Echo network issue", "Connection reset before sign-in.",
+                        TicketStatus.OPEN, TicketPriority.HIGH, requester),
+                new Ticket("Alpha LOGIN failure", "Another LOGIN problem.",
+                        TicketStatus.OPEN, TicketPriority.HIGH, requester)
         ));
         entityManager.clear();
         return fixtures;
@@ -382,7 +462,7 @@ class TicketRepositoryTests {
     }
 
     private void persistFilterTicket(String title, TicketStatus status, TicketPriority priority, String createdAt) {
-        Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Filter fixture", status, priority));
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Filter fixture", status, priority, requester));
         jdbcTemplate.update("UPDATE tickets SET created_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?",
                 createdAt, ticket.getId());
     }
@@ -408,7 +488,8 @@ class TicketRepositoryTests {
 
     private Ticket persistSortingTicket(String title, TicketStatus status, TicketPriority priority,
             String createdAt, String updatedAt) {
-        Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Sorting fixture", status, priority));
+        Ticket ticket = ticketRepository.saveAndFlush(
+                new Ticket(title, "Sorting fixture", status, priority, requester));
         jdbcTemplate.update("""
                 UPDATE tickets SET created_at = CAST(? AS TIMESTAMPTZ), updated_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?
                 """, createdAt, updatedAt, ticket.getId());

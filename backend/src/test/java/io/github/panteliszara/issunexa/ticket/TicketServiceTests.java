@@ -1,5 +1,8 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.user.UserAccount;
+import io.github.panteliszara.issunexa.user.UserAccountRepository;
+import io.github.panteliszara.issunexa.user.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -34,23 +38,31 @@ class TicketServiceTests {
     @Mock
     private TicketRepository ticketRepository;
 
+    @Mock
+    private UserAccountRepository userAccountRepository;
+
+    private final UserAccount requester = new UserAccount("alice@example.com", "Alice",
+            "{bcrypt}encoded-test-value", UserRole.REQUESTER);
+
     private TicketService ticketService;
 
     @BeforeEach
     void setUp() {
-        ticketService = new TicketService(ticketRepository);
+        ticketService = new TicketService(ticketRepository, userAccountRepository);
     }
 
     @Test
-    void createsOpenTicketAndReturnsRepositoryResult() {
+    void resolvesCanonicalRequesterCreatesOpenTicketAndReturnsRepositoryResult() {
         String title = "Printer offline";
         String description = "The office printer is unreachable.\nIt shows a network error.";
         TicketPriority priority = TicketPriority.HIGH;
-        Ticket persistedTicket = new Ticket(title, description, TicketStatus.OPEN, priority);
+        Ticket persistedTicket = new Ticket(title, description, TicketStatus.OPEN, priority, requester);
+        when(userAccountRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(requester));
         when(ticketRepository.save(any(Ticket.class))).thenReturn(persistedTicket);
 
-        Ticket result = ticketService.createTicket(title, description, priority);
+        Ticket result = ticketService.createTicket(title, description, priority, " \tAlice@Example.COM\n ");
 
+        verify(userAccountRepository).findByEmail("alice@example.com");
         ArgumentCaptor<Ticket> ticketCaptor = ArgumentCaptor.forClass(Ticket.class);
         verify(ticketRepository).save(ticketCaptor.capture());
         Ticket submittedTicket = ticketCaptor.getValue();
@@ -58,14 +70,29 @@ class TicketServiceTests {
         assertThat(submittedTicket.getDescription()).isEqualTo(description);
         assertThat(submittedTicket.getPriority()).isEqualTo(priority);
         assertThat(submittedTicket.getStatus()).isEqualTo(TicketStatus.OPEN);
+        assertThat(submittedTicket.getRequester()).isSameAs(requester);
         assertThat(result).isSameAs(persistedTicket);
+        verifyNoMoreInteractions(userAccountRepository, ticketRepository);
+    }
+
+    @Test
+    void failsWithoutPersistingTicketWhenAuthenticatedAccountIsMissing() {
+        when(userAccountRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ticketService.createTicket("Printer offline", "The printer is unreachable.",
+                TicketPriority.HIGH, "missing@example.com"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Authenticated user account could not be resolved.");
+        verify(userAccountRepository).findByEmail("missing@example.com");
+        verifyNoMoreInteractions(userAccountRepository);
+        verifyNoInteractions(ticketRepository);
     }
 
     @Test
     void returnsTicketWhenFound() {
         Long id = 42L;
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.IN_PROGRESS, TicketPriority.HIGH);
+                TicketStatus.IN_PROGRESS, TicketPriority.HIGH, requester);
         when(ticketRepository.findById(id)).thenReturn(Optional.of(ticket));
 
         Ticket result = ticketService.getTicket(id);
@@ -88,7 +115,7 @@ class TicketServiceTests {
     @Test
     void changesStatusAndReturnsLoadedTicketWithoutSavingAgain() {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH);
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
 
         Ticket result = ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS);
@@ -113,7 +140,7 @@ class TicketServiceTests {
     @Test
     void propagatesInvalidStatusTransition() {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH);
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> ticketService.changeStatus(42L, TicketStatus.CLOSED))
@@ -128,7 +155,7 @@ class TicketServiceTests {
     void listsTicketsWithPaginationAndDeterministicOrder(
             TicketSortField sortField, TicketSortDirection direction, Sort.Order primaryOrder, Sort.Order idOrder) {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH);
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
         when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(repositoryResult);
@@ -145,7 +172,7 @@ class TicketServiceTests {
     @Test
     void listsTicketsWithAllSearchCriteriaAndReturnsRepositoryPage() {
         Ticket ticket = new Ticket("Login failure", "The account is unreachable.",
-                TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
+                TicketStatus.IN_PROGRESS, TicketPriority.URGENT, requester);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
         when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(repositoryResult);

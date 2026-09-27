@@ -1,9 +1,13 @@
 package io.github.panteliszara.issunexa.auth.api;
 
 import com.jayway.jsonpath.JsonPath;
+import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketRepository;
+import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserAccountRepository;
 import io.github.panteliszara.issunexa.user.UserAccountService;
 import io.github.panteliszara.issunexa.user.UserRole;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -80,6 +84,12 @@ class AuthenticationIntegrationTests {
 
     @Autowired
     private UserAccountRepository userAccountRepository;
+
+    @Autowired
+    private TicketRepository ticketRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @BeforeEach
     void createAccount() {
@@ -264,6 +274,36 @@ class AuthenticationIntegrationTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("IN_PROGRESS"));
         mockMvc.perform(get("/api/tickets").session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    void persistsAuthenticatedRequesterDespiteClientSuppliedIdentityWithoutExposingAccountData() throws Exception {
+        Long authenticatedId = userAccountRepository.findByEmail(EMAIL).orElseThrow().getId();
+        UserAccount other = userAccountService.createUser("other@example.com", "Other user", PASSWORD,
+                UserRole.REQUESTER);
+        MockHttpSession session = login(csrf(null), EMAIL);
+        CsrfState fresh = csrf(session);
+
+        MvcResult result = mockMvc.perform(post("/api/tickets").session(session)
+                        .header(fresh.headerName(), fresh.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "title", "Printer offline", "description", "The printer is unreachable.",
+                                "priority", "HIGH", "requesterId", other.getId(), "requesterEmail", other.getEmail(),
+                                "requester", Map.of("id", other.getId()), "userId", other.getId()))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("OPEN"))
+                .andReturn();
+
+        Map<String, Object> response = JsonPath.read(result.getResponse().getContentAsString(), "$");
+        assertThat(response).containsOnlyKeys("id", "title", "description", "status", "priority",
+                "createdAt", "updatedAt");
+        Long ticketId = ((Number) response.get("id")).longValue();
+        ticketRepository.flush();
+        entityManager.clear();
+        Ticket persisted = ticketRepository.findById(ticketId).orElseThrow();
+        assertThat(persisted.getRequester().getId()).isEqualTo(authenticatedId).isNotEqualTo(other.getId());
+        assertThat(persisted.getRequester().getEmail()).isEqualTo(EMAIL);
     }
 
     @Test

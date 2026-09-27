@@ -1,5 +1,7 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.user.UserAccount;
+import io.github.panteliszara.issunexa.user.UserAccountRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -11,14 +13,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class TicketService {
 
     private final TicketRepository ticketRepository;
+    private final UserAccountRepository userAccountRepository;
 
-    public TicketService(TicketRepository ticketRepository) {
+    public TicketService(TicketRepository ticketRepository, UserAccountRepository userAccountRepository) {
         this.ticketRepository = ticketRepository;
+        this.userAccountRepository = userAccountRepository;
     }
 
     @Transactional
-    public Ticket createTicket(String title, String description, TicketPriority priority) {
-        Ticket ticket = new Ticket(title, description, TicketStatus.OPEN, priority);
+    public Ticket createTicket(String title, String description, TicketPriority priority, String requesterEmail) {
+        UserAccount requester = userAccountRepository.findByEmail(UserAccount.normalizeEmail(requesterEmail))
+                .orElseThrow(() -> new IllegalStateException("Authenticated user account could not be resolved."));
+        Ticket ticket = new Ticket(title, description, TicketStatus.OPEN, priority, requester);
         return ticketRepository.save(ticket);
     }
 

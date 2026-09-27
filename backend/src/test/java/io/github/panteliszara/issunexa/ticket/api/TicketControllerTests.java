@@ -8,6 +8,8 @@ import io.github.panteliszara.issunexa.ticket.TicketService;
 import io.github.panteliszara.issunexa.ticket.TicketSortDirection;
 import io.github.panteliszara.issunexa.ticket.TicketSortField;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
+import io.github.panteliszara.issunexa.user.UserAccount;
+import io.github.panteliszara.issunexa.user.UserRole;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -51,6 +53,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 class TicketControllerTests {
 
+    private static final String EMAIL = "alice@example.com";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -61,10 +65,10 @@ class TicketControllerTests {
     @MethodSource("validTitles")
     void createsTicketWithLocationAndResponse(String title) throws Exception {
         Ticket ticket = persistedTicket(title, TicketStatus.OPEN);
-        when(ticketService.createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH))
+        when(ticketService.createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH, EMAIL))
                 .thenReturn(ticket);
 
-        mockMvc.perform(post("/api/tickets")
+        mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":"%s","description":"The office printer is unreachable.","priority":"HIGH"}
@@ -74,7 +78,29 @@ class TicketControllerTests {
                 .andExpect(header().string("Location", "http://localhost/api/tickets/42"))
                 .andExpect(content().json(ticketJson(title, "OPEN"), JsonCompareMode.STRICT));
 
-        verify(ticketService).createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH);
+        verify(ticketService).createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH, EMAIL);
+    }
+
+    @Test
+    void derivesRequesterOnlyFromPrincipalDespiteClientSuppliedIdentity() throws Exception {
+        when(ticketService.createTicket("Printer offline", "The office printer is unreachable.",
+                TicketPriority.HIGH, EMAIL)).thenReturn(persistedTicket("Printer offline", TicketStatus.OPEN));
+
+        mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
+                        .queryParam("requesterEmail", "other@example.com")
+                        .header("X-Requester-Email", "other@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"Printer offline","description":"The office printer is unreachable.",
+                                 "priority":"HIGH","requesterId":99,"requesterEmail":"other@example.com",
+                                 "requester":{"id":99},"userId":99}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "http://localhost/api/tickets/42"))
+                .andExpect(content().json(ticketJson("Printer offline", "OPEN"), JsonCompareMode.STRICT));
+
+        verify(ticketService).createTicket("Printer offline", "The office printer is unreachable.",
+                TicketPriority.HIGH, EMAIL);
     }
 
     static Stream<String> validTitles() {
@@ -225,7 +251,7 @@ class TicketControllerTests {
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidRequests")
     void rejectsInvalidRequestBeforeCallingService(String scenario, String request, String field) throws Exception {
-        mockMvc.perform(post("/api/tickets")
+        mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request))
                 .andExpect(status().isBadRequest())
@@ -276,7 +302,7 @@ class TicketControllerTests {
 
     @Test
     void returnsFieldErrorsInDeterministicOrder() throws Exception {
-        mockMvc.perform(post("/api/tickets")
+        mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":" ","description":" ","priority":null}
@@ -307,7 +333,7 @@ class TicketControllerTests {
             "{\"title\":"
     })
     void returnsSafeProblemDetailForUnreadableBody(String request) throws Exception {
-        mockMvc.perform(post("/api/tickets")
+        mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request))
                 .andExpect(status().isBadRequest())
@@ -752,7 +778,8 @@ class TicketControllerTests {
     }
 
     private static Ticket persistedTicket(String title, TicketStatus status, TicketPriority priority) {
-        Ticket ticket = new Ticket(title, "The office printer is unreachable.", status, priority);
+        UserAccount requester = new UserAccount(EMAIL, "Alice", "{bcrypt}encoded-test-value", UserRole.REQUESTER);
+        Ticket ticket = new Ticket(title, "The office printer is unreachable.", status, priority, requester);
         ReflectionTestUtils.setField(ticket, "id", 42L);
         ReflectionTestUtils.setField(ticket, "createdAt", Instant.parse("2026-09-23T10:00:00Z"));
         ReflectionTestUtils.setField(ticket, "updatedAt", Instant.parse("2026-09-23T10:05:00Z"));

@@ -1,12 +1,16 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.user.UserAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -37,6 +41,11 @@ public class Ticket {
     @Column(name = "priority", nullable = false, length = 20)
     private TicketPriority priority;
 
+    // Historical rows may be unowned; application creation requires a requester.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "requester_id", nullable = true, updatable = false)
+    private UserAccount requester;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -46,11 +55,13 @@ public class Ticket {
     protected Ticket() {
     }
 
-    public Ticket(String title, String description, TicketStatus status, TicketPriority priority) {
+    public Ticket(String title, String description, TicketStatus status, TicketPriority priority,
+            UserAccount requester) {
         this.title = title;
         this.description = description;
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.priority = priority;
+        this.requester = Objects.requireNonNull(requester, "requester must not be null");
     }
 
     public Long getId() {
@@ -71,6 +82,10 @@ public class Ticket {
 
     public TicketPriority getPriority() {
         return priority;
+    }
+
+    public UserAccount getRequester() {
+        return requester;
     }
 
     public Instant getCreatedAt() {

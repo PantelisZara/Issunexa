@@ -126,6 +126,9 @@ class OpenApiIntegrationTests {
         DocumentContext api = apiDocs();
         Map<String, Object> create = api.read("$.components.schemas.CreateTicketRequest.properties");
         assertThat(create).containsOnlyKeys("title", "description", "priority");
+        Map<String, Object> ticket = api.read("$.components.schemas.TicketResponse.properties");
+        assertThat(ticket).containsOnlyKeys("id", "title", "description", "status", "priority",
+                "createdAt", "updatedAt");
         assertThat(api.read("$.components.schemas.CreateTicketRequest.properties.title.minLength", Integer.class))
                 .isEqualTo(1);
         Map<String, Object> update = api.read("$.components.schemas.UpdateTicketStatusRequest.properties");
@@ -188,7 +191,7 @@ class OpenApiIntegrationTests {
                 .andExpect(jsonPath("$.info.version").value("0.0.1-SNAPSHOT"))
                 .andExpect(jsonPath("$.security").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(json).doesNotContain("UserAccount", "UserRole", "passwordHash", "password_hash")
+        assertThat(json).doesNotContain("UserAccount", "UserRole", "passwordHash", "password_hash", "requester_id")
                 .doesNotContainIgnoringCase("bearer", "jwt");
         return JsonPath.parse(json);
     }

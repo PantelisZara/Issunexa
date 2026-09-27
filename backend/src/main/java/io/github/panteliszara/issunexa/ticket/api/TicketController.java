@@ -40,6 +40,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.beans.PropertyEditorSupport;
 import java.net.URI;
+import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -63,7 +64,8 @@ public class TicketController {
     }
 
     @PostMapping
-    @Operation(summary = "Create a Ticket", description = "Creates a Ticket with initial status OPEN.")
+    @Operation(summary = "Create a Ticket", description = "Creates a Ticket with initial status OPEN. "
+            + "The requester is derived from the authenticated account.")
     @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
             description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
     @ApiResponse(responseCode = "403", description = "Missing or invalid CSRF token.",
@@ -74,8 +76,10 @@ public class TicketController {
                     schema = @Schema(implementation = TicketResponse.class)),
             headers = @Header(name = "Location", description = "URL of the created Ticket.",
                     schema = @Schema(type = "string", format = "uri")))
-    public ResponseEntity<TicketResponse> createTicket(@Valid @RequestBody CreateTicketRequest request) {
-        Ticket ticket = ticketService.createTicket(request.title(), request.description(), request.priority());
+    public ResponseEntity<TicketResponse> createTicket(@Valid @RequestBody CreateTicketRequest request,
+            Principal principal) {
+        Ticket ticket = ticketService.createTicket(request.title(), request.description(), request.priority(),
+                principal.getName());
         URI location = ServletUriComponentsBuilder.fromCurrentRequestUri()
                 .path("/{id}")
                 .buildAndExpand(ticket.getId())

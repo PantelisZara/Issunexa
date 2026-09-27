@@ -1,5 +1,7 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.user.UserAccount;
+import io.github.panteliszara.issunexa.user.UserRole;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -8,6 +10,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TicketTests {
+
+    private final UserAccount requester = new UserAccount("alice@example.com", "Alice",
+            "{bcrypt}encoded-test-value", UserRole.REQUESTER);
+
+    @Test
+    void retainsRequesterDuringConstruction() {
+        Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
+
+        assertThat(ticket.getRequester()).isSameAs(requester);
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.OPEN);
+    }
+
+    @Test
+    void rejectsNullRequesterForNewTickets() {
+        assertThatThrownBy(() -> new Ticket("Printer offline", "The office printer is unreachable.",
+                TicketStatus.OPEN, TicketPriority.HIGH, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("requester must not be null");
+    }
 
     @ParameterizedTest(name = "allows {0} -> {1}")
     @CsvSource({
@@ -18,7 +40,7 @@ class TicketTests {
     })
     void allowsWorkflowTransitions(TicketStatus currentStatus, TicketStatus targetStatus) {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                currentStatus, TicketPriority.HIGH);
+                currentStatus, TicketPriority.HIGH, requester);
 
         ticket.changeStatus(targetStatus);
 
@@ -26,6 +48,7 @@ class TicketTests {
         assertThat(ticket.getTitle()).isEqualTo("Printer offline");
         assertThat(ticket.getDescription()).isEqualTo("The office printer is unreachable.");
         assertThat(ticket.getPriority()).isEqualTo(TicketPriority.HIGH);
+        assertThat(ticket.getRequester()).isSameAs(requester);
     }
 
     @ParameterizedTest(name = "rejects {0} -> {1}")
@@ -45,7 +68,7 @@ class TicketTests {
     })
     void rejectsProhibitedTransitionsWithoutChangingStatus(TicketStatus currentStatus, TicketStatus targetStatus) {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                currentStatus, TicketPriority.HIGH);
+                currentStatus, TicketPriority.HIGH, requester);
 
         assertThatThrownBy(() -> ticket.changeStatus(targetStatus))
                 .isInstanceOfSatisfying(InvalidTicketStatusTransitionException.class, exception -> {
@@ -55,12 +78,13 @@ class TicketTests {
                 })
                 .hasMessage("Ticket cannot transition from " + currentStatus + " to " + targetStatus + ".");
         assertThat(ticket.getStatus()).isEqualTo(currentStatus);
+        assertThat(ticket.getRequester()).isSameAs(requester);
     }
 
     @Test
     void rejectsNullTargetWithoutChangingStatus() {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH);
+                TicketStatus.OPEN, TicketPriority.HIGH, requester);
 
         assertThatThrownBy(() -> ticket.changeStatus(null))
                 .isInstanceOf(NullPointerException.class)
@@ -71,7 +95,7 @@ class TicketTests {
     @Test
     void rejectsNullInitialStatus() {
         assertThatThrownBy(() -> new Ticket("Printer offline", "The office printer is unreachable.",
-                null, TicketPriority.HIGH))
+                null, TicketPriority.HIGH, requester))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("status must not be null");
     }
