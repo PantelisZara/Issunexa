@@ -109,21 +109,21 @@ class TicketControllerTests {
 
     @Test
     void retrievesTicketThroughService() throws Exception {
-        when(ticketService.getTicket(42L)).thenReturn(persistedTicket("Printer offline", TicketStatus.IN_PROGRESS));
+        when(ticketService.getTicket(42L, EMAIL)).thenReturn(persistedTicket("Printer offline", TicketStatus.IN_PROGRESS));
 
-        mockMvc.perform(get("/api/tickets/42"))
+        mockMvc.perform(get("/api/tickets/42").principal(() -> EMAIL))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json(ticketJson("Printer offline", "IN_PROGRESS"), JsonCompareMode.STRICT));
 
-        verify(ticketService).getTicket(42L);
+        verify(ticketService).getTicket(42L, EMAIL);
     }
 
     @Test
     void returnsProblemDetailForMissingTicket() throws Exception {
-        when(ticketService.getTicket(99L)).thenThrow(new TicketNotFoundException(99L));
+        when(ticketService.getTicket(99L, EMAIL)).thenThrow(new TicketNotFoundException(99L));
 
-        mockMvc.perform(get("/api/tickets/99"))
+        mockMvc.perform(get("/api/tickets/99").principal(() -> EMAIL))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(content().json("""
@@ -136,7 +136,7 @@ class TicketControllerTests {
                         }
                         """, JsonCompareMode.STRICT));
 
-        verify(ticketService).getTicket(99L);
+        verify(ticketService).getTicket(99L, EMAIL);
     }
 
     @Test
@@ -354,10 +354,11 @@ class TicketControllerTests {
     @Test
     void listsTicketsWithDefaultPaginationAndSorting() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC))
+        when(ticketService.listTickets(0, 20, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
-        mockMvc.perform(get("/api/tickets"))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
@@ -372,16 +373,18 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "OPEN")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(0, 20, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+        verify(ticketService).listTickets(0, 20, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsWithCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS);
-        when(ticketService.listTickets(2, 10, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC))
+        when(ticketService.listTickets(2, 10, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 45));
 
-        mockMvc.perform(get("/api/tickets").param("page", "2").param("size", "10"))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param("page", "2").param("size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
@@ -396,17 +399,18 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "IN_PROGRESS")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(2, 10, null, null, null, TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+        verify(ticketService).listTickets(2, 10, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsByStatus() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
         when(ticketService.listTickets(0, 20, TicketStatus.OPEN, null, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
-        mockMvc.perform(get("/api/tickets").param("status", "OPEN"))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param("status", "OPEN"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -416,17 +420,17 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.totalElements").value(1));
 
         verify(ticketService).listTickets(0, 20, TicketStatus.OPEN, null, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsByPriority() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
         when(ticketService.listTickets(0, 20, null, TicketPriority.HIGH, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
-        mockMvc.perform(get("/api/tickets").param("priority", "HIGH"))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param("priority", "HIGH"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -436,17 +440,17 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.totalElements").value(1));
 
         verify(ticketService).listTickets(0, 20, null, TicketPriority.HIGH, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsByStatusAndPriorityWithCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
         when(ticketService.listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(1, 10), 11));
 
-        mockMvc.perform(get("/api/tickets")
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL)
                         .param("status", "IN_PROGRESS")
                         .param("priority", "URGENT")
                         .param("page", "1")
@@ -467,7 +471,7 @@ class TicketControllerTests {
                         JsonCompareMode.STRICT));
 
         verify(ticketService).listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @ParameterizedTest(name = "sortBy={0}, direction={1}")
@@ -484,9 +488,9 @@ class TicketControllerTests {
     void listsTicketsWithControlledSorting(
             String sortBy, String direction, TicketSortField expectedField, TicketSortDirection expectedDirection)
             throws Exception {
-        when(ticketService.listTickets(0, 20, null, null, null, expectedField, expectedDirection))
+        when(ticketService.listTickets(0, 20, null, null, null, expectedField, expectedDirection, EMAIL))
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
-        MockHttpServletRequestBuilder request = get("/api/tickets");
+        MockHttpServletRequestBuilder request = get("/api/tickets").principal(() -> EMAIL);
         if (sortBy != null) {
             request.param("sortBy", sortBy);
         }
@@ -509,17 +513,17 @@ class TicketControllerTests {
                         }
                         """, JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(0, 20, null, null, null, expectedField, expectedDirection);
+        verify(ticketService).listTickets(0, 20, null, null, null, expectedField, expectedDirection, EMAIL);
     }
 
     @ParameterizedTest
     @MethodSource("validSearchQueries")
     void searchesWithNormalizedQuery(String input, String expectedQuery) throws Exception {
         when(ticketService.listTickets(0, 20, null, null, expectedQuery,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC))
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
 
-        mockMvc.perform(get("/api/tickets").param("q", input))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param("q", input))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.content").isEmpty())
@@ -527,7 +531,7 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.size").value(20));
 
         verify(ticketService).listTickets(0, 20, null, null, expectedQuery,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     static Stream<Arguments> validSearchQueries() {
@@ -542,10 +546,10 @@ class TicketControllerTests {
     void listsTicketsWithSearchFiltersSortingAndCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Login failure", TicketStatus.OPEN);
         when(ticketService.listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, "login",
-                TicketSortField.UPDATED_AT, TicketSortDirection.ASC))
+                TicketSortField.UPDATED_AT, TicketSortDirection.ASC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(1, 10), 11));
 
-        mockMvc.perform(get("/api/tickets")
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL)
                         .param("status", "OPEN")
                         .param("priority", "HIGH")
                         .param("q", "login")
@@ -568,13 +572,13 @@ class TicketControllerTests {
                         """.formatted(ticketJson("Login failure", "OPEN")), JsonCompareMode.STRICT));
 
         verify(ticketService).listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, "login",
-                TicketSortField.UPDATED_AT, TicketSortDirection.ASC);
+                TicketSortField.UPDATED_AT, TicketSortDirection.ASC, EMAIL);
     }
 
     @ParameterizedTest
     @MethodSource("invalidSearchQueries")
     void rejectsInvalidSearchBeforeCallingService(String query, String message) throws Exception {
-        mockMvc.perform(get("/api/tickets").param("q", query))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param("q", query))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(content().json("""
@@ -604,7 +608,7 @@ class TicketControllerTests {
     @MethodSource({"invalidFilters", "invalidSortingParameters", "invalidSearchParameters"})
     void returnsSafeProblemDetailForInvalidListingParameters(String scenario, String parameter, String[] values)
             throws Exception {
-        mockMvc.perform(get("/api/tickets").param(parameter, values))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param(parameter, values))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(content().json("""
@@ -685,9 +689,9 @@ class TicketControllerTests {
             throws Exception {
         Page<Ticket> tickets = new PageImpl<>(List.of(), PageRequest.of(page, size), totalElements);
         when(ticketService.listTickets(page, size, null, null, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC)).thenReturn(tickets);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).thenReturn(tickets);
 
-        mockMvc.perform(get("/api/tickets")
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL)
                         .param("page", Integer.toString(page))
                         .param("size", Integer.toString(size)))
                 .andExpect(status().isOk())
@@ -705,7 +709,7 @@ class TicketControllerTests {
                         """.formatted(page, size, totalElements, totalPages, first), JsonCompareMode.STRICT));
 
         verify(ticketService).listTickets(page, size, null, null, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @ParameterizedTest(name = "rejects {0}={1}")
@@ -715,7 +719,7 @@ class TicketControllerTests {
             "size, 101, must be less than or equal to 100"
     })
     void rejectsInvalidPagination(String parameter, String value, String message) throws Exception {
-        mockMvc.perform(get("/api/tickets").param(parameter, value))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param(parameter, value))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(content().json("""
@@ -734,7 +738,7 @@ class TicketControllerTests {
 
     @Test
     void returnsPaginationErrorsInDeterministicOrder() throws Exception {
-        mockMvc.perform(get("/api/tickets").param("size", "101").param("page", "-1"))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param("size", "101").param("page", "-1"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(content().json("""
@@ -757,7 +761,7 @@ class TicketControllerTests {
     @ParameterizedTest
     @ValueSource(strings = {"page", "size"})
     void returnsSafeProblemDetailForNonNumericPagination(String parameter) throws Exception {
-        mockMvc.perform(get("/api/tickets").param(parameter, "abc"))
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param(parameter, "abc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(content().json("""

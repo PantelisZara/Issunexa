@@ -64,8 +64,8 @@ public class TicketController {
     }
 
     @PostMapping
-    @Operation(summary = "Create a Ticket", description = "Creates a Ticket with initial status OPEN. "
-            + "The requester is derived from the authenticated account.")
+    @Operation(summary = "Create a Ticket", description = "Any authenticated account may create a Ticket "
+            + "with initial status OPEN. The requester is derived from the authenticated account.")
     @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
             description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
     @ApiResponse(responseCode = "403", description = "Missing or invalid CSRF token.",
@@ -88,27 +88,32 @@ public class TicketController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Get a Ticket")
+    @Operation(summary = "Get a Ticket", description = "REQUESTER may retrieve only their own Tickets. "
+            + "AGENT and ADMIN may retrieve all Tickets, including historical Tickets without a requester. "
+            + "Tickets outside REQUESTER visibility return the same 404 as nonexistent Tickets.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Ticket found.",
                     content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
                             schema = @Schema(implementation = TicketResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Ticket not found. RFC 9457 Problem Detail.",
+            @ApiResponse(responseCode = "404", description = "Ticket not found or outside the requester's visibility. "
+                    + "RFC 9457 Problem Detail.",
                     content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public TicketResponse getTicket(@Parameter(description = "Ticket ID.", example = "42") @PathVariable Long id) {
-        return TicketResponse.from(ticketService.getTicket(id));
+    public TicketResponse getTicket(@Parameter(description = "Ticket ID.", example = "42") @PathVariable Long id,
+            Principal principal) {
+        return TicketResponse.from(ticketService.getTicket(id, principal.getName()));
     }
 
     @PatchMapping("/{id}/status")
     @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
             description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
-    @Operation(summary = "Change Ticket status", description = "Allowed transitions: OPEN → IN_PROGRESS; "
+    @Operation(summary = "Change Ticket status", description = "Requires AGENT or ADMIN. "
+            + "Allowed transitions: OPEN → IN_PROGRESS; "
             + "IN_PROGRESS → RESOLVED; RESOLVED → IN_PROGRESS; RESOLVED → CLOSED. "
             + "CLOSED is terminal. All other transitions, including the current status, are rejected.")
     @ApiResponses({
-            @ApiResponse(responseCode = "403", description = "Missing or invalid CSRF token.",
+            @ApiResponse(responseCode = "403", description = "Insufficient role, or missing or invalid CSRF token.",
                     content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "200", description = "Ticket status changed.",
@@ -127,7 +132,9 @@ public class TicketController {
     }
 
     @GetMapping
-    @Operation(summary = "List Tickets", description = "Status, priority and text search criteria combine using AND. "
+    @Operation(summary = "List Tickets", description = "REQUESTER receives only their own Tickets. "
+            + "AGENT and ADMIN may view all Tickets, including historical Tickets without a requester. "
+            + "Status, priority and text search criteria combine using AND. "
             + "Filtering precedes pagination. Sorting uses ID as a secondary key in the selected direction.")
     @ApiResponse(responseCode = "200", description = "Matching Tickets with page metadata.",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -152,9 +159,11 @@ public class TicketController {
             @Parameter(description = "Direction for both the primary field and the ID tie-breaker.",
                     schema = @Schema(implementation = String.class,
                             allowableValues = {"asc", "desc"}, defaultValue = "desc"))
-            @RequestParam(name = "direction", defaultValue = "desc") TicketSortDirection direction) {
+            @RequestParam(name = "direction", defaultValue = "desc") TicketSortDirection direction,
+            Principal principal) {
         String query = q == null ? null : q.strip();
-        return TicketPageResponse.from(ticketService.listTickets(page, size, status, priority, query, sortBy, direction));
+        return TicketPageResponse.from(ticketService.listTickets(page, size, status, priority, query, sortBy, direction,
+                principal.getName()));
     }
 
     @InitBinder({"status", "priority", "sortBy", "direction", "q"})

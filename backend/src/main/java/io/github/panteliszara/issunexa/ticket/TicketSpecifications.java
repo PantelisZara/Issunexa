@@ -3,12 +3,22 @@ package io.github.panteliszara.issunexa.ticket;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.Locale;
+import java.util.Objects;
 
 public final class TicketSpecifications {
 
     private static final char LIKE_ESCAPE = '\\';
 
     private TicketSpecifications() {
+    }
+
+    public static Specification<Ticket> hasId(Long id) {
+        return (root, query, builder) -> builder.equal(root.get("id"), id);
+    }
+
+    public static Specification<Ticket> requestedBy(Long requesterId) {
+        Objects.requireNonNull(requesterId, "requesterId must not be null");
+        return (root, query, builder) -> builder.equal(root.get("requester").get("id"), requesterId);
     }
 
     public static Specification<Ticket> hasStatus(TicketStatus status) {

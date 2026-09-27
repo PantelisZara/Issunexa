@@ -210,7 +210,7 @@ class AuthenticationIntegrationTests {
 
     @ParameterizedTest
     @CsvSource({"REQUESTER, ROLE_REQUESTER", "AGENT, ROLE_AGENT", "ADMIN, ROLE_ADMIN"})
-    void exposesThePersistedRoleAfterRealLoginAndAllowsAllTicketOperations(
+    void exposesThePersistedRoleAndAllowsCreationAndOwnedReadsForEveryRole(
             UserRole role, String expectedAuthority) throws Exception {
         String email = "role@example.com";
         userAccountService.createUser(email, "Role account", PASSWORD, role);
@@ -235,16 +235,22 @@ class AuthenticationIntegrationTests {
         Number ticketId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
         mockMvc.perform(get("/api/tickets/" + ticketId).session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("OPEN"));
-        mockMvc.perform(patch("/api/tickets/" + ticketId + "/status").session(session)
+        ResultActions statusChange = mockMvc.perform(patch("/api/tickets/" + ticketId + "/status").session(session)
                         .header(fresh.headerName(), fresh.token())
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"IN_PROGRESS\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"IN_PROGRESS\"}"));
+        if (role == UserRole.REQUESTER) {
+            assertForbidden(statusChange);
+        } else {
+            statusChange.andExpect(status().isOk()).andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+        }
     }
 
     @Test
     void invalidatesPreLoginCsrfAndRequiresFreshTokensForTicketCreationAndStatusChanges() throws Exception {
+        String email = "agent@example.com";
+        userAccountService.createUser(email, "Agent", PASSWORD, UserRole.AGENT);
         CsrfState anonymous = csrf(null);
-        MockHttpSession session = login(anonymous, EMAIL);
+        MockHttpSession session = login(anonymous, email);
 
         assertForbidden(mockMvc.perform(post("/api/tickets").session(session)
                 .contentType(MediaType.APPLICATION_JSON).content(TICKET_JSON)));

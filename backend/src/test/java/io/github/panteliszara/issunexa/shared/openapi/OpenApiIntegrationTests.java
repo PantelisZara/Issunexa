@@ -58,6 +58,24 @@ class OpenApiIntegrationTests {
     }
 
     @Test
+    void documentsRoleAndOwnershipRulesWithoutAddingRequesterInputs() throws Exception {
+        DocumentContext api = apiDocs();
+        assertThat(api.read("$.paths['/api/tickets'].post.description", String.class))
+                .contains("Any authenticated account", "requester is derived from the authenticated account");
+        assertThat(api.read("$.paths['/api/tickets'].get.description", String.class))
+                .contains("REQUESTER receives only their own Tickets", "AGENT and ADMIN may view all Tickets",
+                        "historical Tickets without a requester");
+        assertThat(api.read("$.paths['/api/tickets/{id}'].get.description", String.class))
+                .contains("REQUESTER may retrieve only their own Tickets", "same 404 as nonexistent Tickets");
+        assertThat(api.read("$.paths['/api/tickets/{id}'].get.responses['404'].description", String.class))
+                .contains("outside the requester's visibility");
+        assertThat(api.read("$.paths['/api/tickets/{id}/status'].patch.description", String.class))
+                .contains("Requires AGENT or ADMIN");
+        assertThat(api.read("$.paths['/api/tickets/{id}/status'].patch.responses['403'].description", String.class))
+                .contains("Insufficient role", "CSRF");
+    }
+
+    @Test
     void documentsAuthenticationOperationsAndSafeSchemas() throws Exception {
         DocumentContext api = apiDocs();
         Map<String, Object> csrfPath = api.read("$.paths['/api/auth/csrf']");

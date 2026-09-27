@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
@@ -19,6 +20,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +37,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class TicketServiceTests {
 
+    private static final String EMAIL = "alice@example.com";
+
     @Mock
     private TicketRepository ticketRepository;
 
@@ -49,6 +53,7 @@ class TicketServiceTests {
     @BeforeEach
     void setUp() {
         ticketService = new TicketService(ticketRepository, userAccountRepository);
+        ReflectionTestUtils.setField(requester, "id", 7L);
     }
 
     @Test
@@ -88,28 +93,96 @@ class TicketServiceTests {
         verifyNoInteractions(ticketRepository);
     }
 
-    @Test
-    void returnsTicketWhenFound() {
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
+    void returnsTicketUsingUnrestrictedLookupForStaff(UserRole role) {
+        stubActor(role);
         Long id = 42L;
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
                 TicketStatus.IN_PROGRESS, TicketPriority.HIGH, requester);
         when(ticketRepository.findById(id)).thenReturn(Optional.of(ticket));
 
-        Ticket result = ticketService.getTicket(id);
+        Ticket result = ticketService.getTicket(id, EMAIL);
 
         assertThat(result).isSameAs(ticket);
         verify(ticketRepository).findById(id);
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verifyNoMoreInteractions(ticketRepository);
     }
 
-    @Test
-    void throwsNotFoundExceptionWithMissingId() {
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
+    void throwsNotFoundExceptionForMissingStaffLookup(UserRole role) {
+        stubActor(role);
         Long missingId = 99L;
         when(ticketRepository.findById(missingId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> ticketService.getTicket(missingId))
+        assertThatThrownBy(() -> ticketService.getTicket(missingId, EMAIL))
                 .isInstanceOf(TicketNotFoundException.class)
                 .hasMessageContaining(missingId.toString());
         verify(ticketRepository).findById(missingId);
+    }
+
+    @Test
+    void queriesRequesterTicketByIdAndOwnership() {
+        stubActor(UserRole.REQUESTER);
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        when(ticketRepository.findOne(ArgumentMatchers.<Specification<Ticket>>any())).thenReturn(Optional.of(ticket));
+
+        assertThat(ticketService.getTicket(42L, " \tAlice@Example.COM\n ")).isSameAs(ticket);
+
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verify(ticketRepository).findOne(ArgumentMatchers.<Specification<Ticket>>notNull());
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @Test
+    void mapsInvisibleOrMissingScopedResultToExistingNotFoundException() {
+        stubActor(UserRole.REQUESTER);
+        when(ticketRepository.findOne(ArgumentMatchers.<Specification<Ticket>>any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ticketService.getTicket(42L, EMAIL))
+                .isInstanceOf(TicketNotFoundException.class)
+                .hasMessage("Ticket with ID 42 was not found");
+        verify(ticketRepository).findOne(ArgumentMatchers.<Specification<Ticket>>notNull());
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(UserRole.class)
+    void resolvesEachRoleAndExecutesSpecificationListing(UserRole role) {
+        stubActor(role);
+        Page<Ticket> page = Page.empty();
+        when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
+                .thenReturn(page);
+
+        assertThat(ticketService.listTickets(0, 20, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).isSameAs(page);
+
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verify(ticketRepository).findAll(ArgumentMatchers.<Specification<Ticket>>notNull(), any(Pageable.class));
+        verifyNoMoreInteractions(ticketRepository);
+    }
+
+    @Test
+    void rejectsNullRoleBeforeReadingTickets() {
+        ReflectionTestUtils.setField(requester, "role", null);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(requester));
+
+        assertThatThrownBy(() -> ticketService.getTicket(42L, EMAIL)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> ticketService.listTickets(0, 20, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).isInstanceOf(NullPointerException.class);
+        verifyNoInteractions(ticketRepository);
+    }
+
+    @Test
+    void rejectsUnresolvedActorBeforeReadingTickets() {
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ticketService.getTicket(42L, EMAIL)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> ticketService.listTickets(0, 20, null, null, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(ticketRepository);
     }
 
     @Test
@@ -154,13 +227,14 @@ class TicketServiceTests {
     @MethodSource("sortOrders")
     void listsTicketsWithPaginationAndDeterministicOrder(
             TicketSortField sortField, TicketSortDirection direction, Sort.Order primaryOrder, Sort.Order idOrder) {
+        stubActor(UserRole.REQUESTER);
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
                 TicketStatus.OPEN, TicketPriority.HIGH, requester);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
         when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(repositoryResult);
 
-        Page<Ticket> result = ticketService.listTickets(2, 10, null, null, null, sortField, direction);
+        Page<Ticket> result = ticketService.listTickets(2, 10, null, null, null, sortField, direction, EMAIL);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(ticketRepository).findAll(ArgumentMatchers.<Specification<Ticket>>notNull(), pageableCaptor.capture());
@@ -171,6 +245,7 @@ class TicketServiceTests {
 
     @Test
     void listsTicketsWithAllSearchCriteriaAndReturnsRepositoryPage() {
+        stubActor(UserRole.REQUESTER);
         Ticket ticket = new Ticket("Login failure", "The account is unreachable.",
                 TicketStatus.IN_PROGRESS, TicketPriority.URGENT, requester);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
@@ -178,7 +253,7 @@ class TicketServiceTests {
                 .thenReturn(repositoryResult);
 
         Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, "login",
-                TicketSortField.UPDATED_AT, TicketSortDirection.ASC);
+                TicketSortField.UPDATED_AT, TicketSortDirection.ASC, EMAIL);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(ticketRepository).findAll(ArgumentMatchers.<Specification<Ticket>>notNull(), pageableCaptor.capture());
@@ -202,6 +277,12 @@ class TicketServiceTests {
                 Arguments.of(TicketSortField.TITLE, TicketSortDirection.DESC,
                         Sort.Order.desc("title"), Sort.Order.desc("id"))
         );
+    }
+
+    private void stubActor(UserRole role) {
+        UserAccount actor = new UserAccount(EMAIL, "Alice", "{bcrypt}encoded-test-value", role);
+        ReflectionTestUtils.setField(actor, "id", 7L);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(actor));
     }
 
     private static void assertListingPageable(Pageable pageable, Sort.Order primaryOrder, Sort.Order idOrder) {

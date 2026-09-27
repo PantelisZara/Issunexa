@@ -6,6 +6,7 @@ import io.github.panteliszara.issunexa.user.UserAccountService;
 import io.github.panteliszara.issunexa.user.UserRole;
 import jakarta.persistence.EntityManager;
 import org.hibernate.Hibernate;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -19,6 +20,9 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -62,9 +66,17 @@ class TicketRepositoryTests {
 
     @BeforeEach
     void createRequester() {
+        // Staff identity keeps these persistence/query tests independent of ownership scoping.
         requester = userAccountService.createUser("requester@example.com", "Requester",
-                "ticket integration test password", UserRole.REQUESTER);
+                "ticket integration test password", UserRole.AGENT);
         userAccountRepository.flush();
+        SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
+                requester.getEmail(), null, List.of(new SimpleGrantedAuthority("ROLE_AGENT"))));
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -232,9 +244,9 @@ class TicketRepositoryTests {
         entityManager.clear();
 
         Page<Ticket> firstPage = ticketService.listTickets(0, 2, null, null, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
         Page<Ticket> secondPage = ticketService.listTickets(1, 2, null, null, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(firstPage.getContent()).extracting(Ticket::getId)
                 .containsExactly(secondAtLatestTime.getId(), firstAtLatestTime.getId());
@@ -256,9 +268,9 @@ class TicketRepositoryTests {
         persistFilterFixtures();
 
         Page<Ticket> firstPage = ticketService.listTickets(0, 2, status, priority, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
         Page<Ticket> secondPage = ticketService.listTickets(1, 2, status, priority, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(firstPage.getContent()).extracting(Ticket::getTitle)
                 .containsExactlyElementsOf(expectedTitles.subList(0, 2));
@@ -294,7 +306,7 @@ class TicketRepositoryTests {
         persistFilterFixtures();
 
         Page<Ticket> page = ticketService.listTickets(0, 2, TicketStatus.CLOSED, TicketPriority.HIGH, null,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(page.getContent()).isEmpty();
         assertThat(page.getTotalElements()).isZero();
@@ -361,7 +373,7 @@ class TicketRepositoryTests {
         entityManager.clear();
 
         Page<Ticket> page = ticketService.listTickets(0, 20, null, null, query,
-                TicketSortField.CREATED_AT, TicketSortDirection.DESC);
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(page.getContent()).extracting(Ticket::getId).containsExactly(matching.getId());
         assertThat(page.getTotalElements()).isEqualTo(1);
@@ -404,7 +416,8 @@ class TicketRepositoryTests {
         int pagesToRead = Math.max(1, totalPages);
 
         for (int pageNumber = 0; pageNumber < pagesToRead; pageNumber++) {
-            Page<Ticket> page = ticketService.listTickets(pageNumber, size, status, priority, query, sortField, direction);
+            Page<Ticket> page = ticketService.listTickets(pageNumber, size, status, priority, query,
+                    sortField, direction, requester.getEmail());
 
             int start = pageNumber * size;
             int end = Math.min(start + size, expectedIds.size());

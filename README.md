@@ -55,6 +55,16 @@ Retain the session cookie when fetching a CSRF token and send the token in the r
 
 All Ticket endpoints require an authenticated session. GET requests do not require CSRF. Missing authentication returns `401` Problem Details; missing or invalid CSRF returns `403` Problem Details, including on login. Invalid credentials return the same generic `401` response for unknown emails and incorrect passwords. On unsafe requests, CSRF validation runs before the authentication requirement.
 
+New Tickets belong to the authenticated account; clients cannot select a requester.
+
+| Role | Create | List/get | Change status |
+| --- | --- | --- | --- |
+| REQUESTER | Allowed | Own Tickets only | Forbidden (`403`) |
+| AGENT | Allowed | All Tickets | Allowed |
+| ADMIN | Allowed | All Tickets | Allowed |
+
+For REQUESTER, other users' Tickets and historical Tickets without a requester are absent from listings and return the same `404` as missing Tickets. AGENT and ADMIN can view and update the status of historical Tickets. Listing totals reflect only visible, matching Tickets. ADMIN-specific User administration is not implemented yet.
+
 ## Ticket API
 
 When the application is running locally, OpenAPI JSON is available at `/v3/api-docs`. Swagger UI is available at `/swagger-ui.html`, which redirects to `/swagger-ui/index.html`.
