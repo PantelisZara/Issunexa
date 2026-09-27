@@ -3,10 +3,12 @@ package io.github.panteliszara.issunexa.auth.api;
 import com.jayway.jsonpath.JsonPath;
 import io.github.panteliszara.issunexa.user.UserAccountRepository;
 import io.github.panteliszara.issunexa.user.UserAccountService;
+import io.github.panteliszara.issunexa.user.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -19,6 +21,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -80,7 +83,7 @@ class AuthenticationIntegrationTests {
 
     @BeforeEach
     void createAccount() {
-        userAccountService.createUser(EMAIL, "Alice", PASSWORD);
+        userAccountService.createUser(EMAIL, "Alice", PASSWORD, UserRole.REQUESTER);
     }
 
     @Test
@@ -185,11 +188,47 @@ class AuthenticationIntegrationTests {
         assertThat(context.getAuthentication().isAuthenticated()).isTrue();
         assertThat(context.getAuthentication().getName()).isEqualTo(EMAIL);
         assertThat(context.getAuthentication().getCredentials()).isNull();
-        assertThat(((UserDetails) context.getAuthentication().getPrincipal()).getPassword()).isNull();
+        UserDetails principal = (UserDetails) context.getAuthentication().getPrincipal();
+        assertThat(principal.getPassword()).isNull();
+        assertThat(principal.getAuthorities()).extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_REQUESTER");
         assertThat(userAccountRepository.count()).isEqualTo(1);
         mockMvc.perform(get("/api/tickets").session(authenticated))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"REQUESTER, ROLE_REQUESTER", "AGENT, ROLE_AGENT", "ADMIN, ROLE_ADMIN"})
+    void exposesThePersistedRoleAfterRealLoginAndAllowsAllTicketOperations(
+            UserRole role, String expectedAuthority) throws Exception {
+        String email = "role@example.com";
+        userAccountService.createUser(email, "Role account", PASSWORD, role);
+
+        MockHttpSession session = login(csrf(null), email);
+
+        SecurityContext context = (SecurityContext) session
+                .getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+        UserDetails principal = (UserDetails) context.getAuthentication().getPrincipal();
+        assertThat(principal.getAuthorities()).extracting(GrantedAuthority::getAuthority)
+                .containsExactly(expectedAuthority);
+        assertThat(context.getAuthentication().getAuthorities())
+                .filteredOn(authority -> authority.getAuthority().startsWith("ROLE_"))
+                .extracting(GrantedAuthority::getAuthority).containsExactly(expectedAuthority);
+
+        mockMvc.perform(get("/api/tickets").session(session)).andExpect(status().isOk());
+        CsrfState fresh = csrf(session);
+        MvcResult created = mockMvc.perform(post("/api/tickets").session(session)
+                        .header(fresh.headerName(), fresh.token())
+                        .contentType(MediaType.APPLICATION_JSON).content(TICKET_JSON))
+                .andExpect(status().isCreated()).andReturn();
+        Number ticketId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(get("/api/tickets/" + ticketId).session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("OPEN"));
+        mockMvc.perform(patch("/api/tickets/" + ticketId + "/status").session(session)
+                        .header(fresh.headerName(), fresh.token())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"IN_PROGRESS\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("IN_PROGRESS"));
     }
 
     @Test

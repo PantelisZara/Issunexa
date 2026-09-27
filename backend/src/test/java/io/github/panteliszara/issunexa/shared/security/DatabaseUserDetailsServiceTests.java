@@ -2,14 +2,17 @@ package io.github.panteliszara.issunexa.shared.security;
 
 import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserAccountRepository;
+import io.github.panteliszara.issunexa.user.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
@@ -35,16 +38,18 @@ class DatabaseUserDetailsServiceTests {
         userDetailsService = new DatabaseUserDetailsService(userAccountRepository);
     }
 
-    @Test
-    void looksUpCanonicalEmailAndReturnsStoredHashWithoutApplicationAuthorities() {
-        UserAccount userAccount = new UserAccount("alice@example.com", "Alice", "{bcrypt}encoded-test-value");
+    @ParameterizedTest
+    @CsvSource({"REQUESTER, ROLE_REQUESTER", "AGENT, ROLE_AGENT", "ADMIN, ROLE_ADMIN"})
+    void looksUpCanonicalEmailAndReturnsStoredHashWithExactlyThePersistedRole(
+            UserRole role, String expectedAuthority) {
+        UserAccount userAccount = new UserAccount("alice@example.com", "Alice", "{bcrypt}encoded-test-value", role);
         when(userAccountRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(userAccount));
 
         UserDetails details = userDetailsService.loadUserByUsername(" \tAlice@Example.COM\n ");
 
         assertThat(details.getUsername()).isEqualTo("alice@example.com");
         assertThat(details.getPassword()).isEqualTo(userAccount.getPasswordHash());
-        assertThat(details.getAuthorities()).isEmpty();
+        assertThat(details.getAuthorities()).extracting(GrantedAuthority::getAuthority).containsExactly(expectedAuthority);
         verify(userAccountRepository).findByEmail("alice@example.com");
         verifyNoMoreInteractions(userAccountRepository);
     }

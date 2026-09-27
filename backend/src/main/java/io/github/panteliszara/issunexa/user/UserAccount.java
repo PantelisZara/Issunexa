@@ -2,6 +2,8 @@ package io.github.panteliszara.issunexa.user;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -11,6 +13,7 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Objects;
 
 @Entity
 @Table(name = "users")
@@ -30,6 +33,10 @@ public class UserAccount {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false, length = 20)
+    private UserRole role;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -39,10 +46,11 @@ public class UserAccount {
     protected UserAccount() {
     }
 
-    public UserAccount(String email, String displayName, String passwordHash) {
+    public UserAccount(String email, String displayName, String passwordHash, UserRole role) {
         this.email = normalizeEmail(email);
         this.displayName = requireNonblank(displayName, "displayName").strip();
         this.passwordHash = requireNonblank(passwordHash, "passwordHash");
+        this.role = Objects.requireNonNull(role, "role must not be null");
     }
 
     public Long getId() {
@@ -59,6 +67,10 @@ public class UserAccount {
 
     public String getPasswordHash() {
         return passwordHash;
+    }
+
+    public UserRole getRole() {
+        return role;
     }
 
     public Instant getCreatedAt() {

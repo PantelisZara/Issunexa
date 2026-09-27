@@ -4,6 +4,7 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EmptySource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,10 +50,10 @@ class UserAccountRepositoryTests {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void appliesBothMigrationsAndCreatesOnlyTheExpectedTables() {
+    void appliesAllMigrationsAndCreatesOnlyTheExpectedTables() {
         assertThat(jdbcTemplate.queryForList("""
                 SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank
-                """, String.class)).containsExactly("1", "2");
+                """, String.class)).containsExactly("1", "2", "3");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT tablename FROM pg_tables WHERE schemaname = current_schema()
                 """, String.class)).containsExactlyInAnyOrder("flyway_schema_history", "tickets", "users");
@@ -63,8 +64,9 @@ class UserAccountRepositoryTests {
         String rawPassword = "  shared integration test password  ";
         Instant beforeCreation = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        UserAccount alice = userAccountService.createUser(" \tAlice@Example.COM\n ", " Alice McKay ", rawPassword);
-        UserAccount bob = userAccountService.createUser("Bob@Example.COM", "Bob", rawPassword);
+        UserAccount alice = userAccountService.createUser(" \tAlice@Example.COM\n ", " Alice McKay ", rawPassword,
+                UserRole.REQUESTER);
+        UserAccount bob = userAccountService.createUser("Bob@Example.COM", "Bob", rawPassword, UserRole.REQUESTER);
         userAccountRepository.flush();
         assertThat(alice.getId()).isPositive();
         assertThat(bob.getId()).isPositive().isNotEqualTo(alice.getId());
@@ -92,13 +94,51 @@ class UserAccountRepositoryTests {
     }
 
     @ParameterizedTest
+    @EnumSource(UserRole.class)
+    void persistsAndReloadsEachRoleAsAString(UserRole role) {
+        UserAccount userAccount = userAccountService.createUser("role@example.com", "Role account",
+                "role integration test password", role);
+        userAccountRepository.flush();
+        entityManager.clear();
+
+        UserAccount loaded = userAccountRepository.findByEmail("role@example.com").orElseThrow();
+
+        assertThat(loaded.getId()).isEqualTo(userAccount.getId());
+        assertThat(loaded.getRole()).isEqualTo(role);
+        assertThat(jdbcTemplate.queryForObject("SELECT role FROM users WHERE id = ?", String.class, loaded.getId()))
+                .isEqualTo(role.name());
+    }
+
+    @Test
+    void rejectsInvalidRoleThroughSql() {
+        assertThatThrownBy(() -> insertSqlAccount("alice@example.com", "Alice", "INVALID"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .rootCause()
+                .isInstanceOfSatisfying(PSQLException.class, exception -> {
+                    assertThat(exception.getSQLState()).isEqualTo("23514");
+                    assertThat(exception.getServerErrorMessage().getConstraint()).isEqualTo("ck_users_role");
+                });
+    }
+
+    @Test
+    void rejectsNullRoleThroughSql() {
+        assertThatThrownBy(() -> insertSqlAccount("alice@example.com", "Alice", null))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .rootCause()
+                .isInstanceOfSatisfying(PSQLException.class, exception -> {
+                    assertThat(exception.getSQLState()).isEqualTo("23502");
+                    assertThat(exception.getServerErrorMessage().getColumn()).isEqualTo("role");
+                });
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"alice@example.com", "  ALICE@Example.COM\t"})
     void rejectsDuplicateCanonicalEmails(String duplicateEmail) {
-        userAccountService.createUser("alice@example.com", "Alice", "first test password");
+        userAccountService.createUser("alice@example.com", "Alice", "first test password", UserRole.REQUESTER);
         userAccountRepository.flush();
 
         assertThatThrownBy(() -> {
-            userAccountService.createUser(duplicateEmail, "Another Alice", "second test password");
+            userAccountService.createUser(duplicateEmail, "Another Alice", "second test password", UserRole.REQUESTER);
             userAccountRepository.flush();
         })
                 .isInstanceOf(DataIntegrityViolationException.class)
@@ -130,16 +170,20 @@ class UserAccountRepositoryTests {
     }
 
     private void assertRejectedSqlAccount(String email, String displayName, String constraintName) {
-        assertThatThrownBy(() -> jdbcTemplate.update("""
-                INSERT INTO users (email, display_name, password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, email, displayName, "encoded-test-fixture"))
+        assertThatThrownBy(() -> insertSqlAccount(email, displayName, "REQUESTER"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .rootCause()
                 .isInstanceOfSatisfying(PSQLException.class, exception -> {
                     assertThat(exception.getSQLState()).isEqualTo("23514");
                     assertThat(exception.getServerErrorMessage().getConstraint()).isEqualTo(constraintName);
                 });
+    }
+
+    private void insertSqlAccount(String email, String displayName, String role) {
+        jdbcTemplate.update("""
+                INSERT INTO users (email, display_name, password_hash, created_at, updated_at, role)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+                """, email, displayName, "encoded-test-fixture", role);
     }
 
 }

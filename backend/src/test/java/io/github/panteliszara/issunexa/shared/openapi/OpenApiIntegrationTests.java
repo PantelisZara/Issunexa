@@ -188,7 +188,7 @@ class OpenApiIntegrationTests {
                 .andExpect(jsonPath("$.info.version").value("0.0.1-SNAPSHOT"))
                 .andExpect(jsonPath("$.security").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(json).doesNotContain("UserAccount", "passwordHash", "password_hash")
+        assertThat(json).doesNotContain("UserAccount", "UserRole", "passwordHash", "password_hash")
                 .doesNotContainIgnoringCase("bearer", "jwt");
         return JsonPath.parse(json);
     }

@@ -2,6 +2,7 @@ package io.github.panteliszara.issunexa.shared.security;
 
 import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserAccountRepository;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -31,7 +32,8 @@ public class DatabaseUserDetailsService implements UserDetailsService {
         }
         UserAccount userAccount = userAccountRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User account not found."));
-        return new User(userAccount.getEmail(), userAccount.getPasswordHash(), List.of());
+        return new User(userAccount.getEmail(), userAccount.getPasswordHash(),
+                List.of(new SimpleGrantedAuthority("ROLE_" + userAccount.getRole().name())));
     }
 
 }

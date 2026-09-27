@@ -4,6 +4,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
+
 @Service
 public class UserAccountService {
 
@@ -16,12 +18,13 @@ public class UserAccountService {
     }
 
     @Transactional
-    public UserAccount createUser(String email, String displayName, String rawPassword) {
+    public UserAccount createUser(String email, String displayName, String rawPassword, UserRole role) {
         if (rawPassword == null || rawPassword.isBlank()) {
             throw new IllegalArgumentException("rawPassword must not be blank");
         }
+        Objects.requireNonNull(role, "role must not be null");
         String passwordHash = passwordEncoder.encode(rawPassword);
-        UserAccount userAccount = new UserAccount(email, displayName, passwordHash);
+        UserAccount userAccount = new UserAccount(email, displayName, passwordHash, role);
         return userAccountRepository.save(userAccount);
     }
 
