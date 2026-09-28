@@ -2,6 +2,7 @@ package io.github.panteliszara.issunexa.auth.api;
 
 import com.jayway.jsonpath.JsonPath;
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketRepository;
 import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserAccountRepository;
@@ -66,7 +67,7 @@ class AuthenticationIntegrationTests {
     private static final String EMAIL = "alice@example.com";
     private static final String PASSWORD = "  correct integration password  ";
     private static final String TICKET_JSON = """
-            {"title":"Printer offline","description":"The printer is unreachable.","priority":"HIGH"}
+            {"title":"Printer offline","description":"The printer is unreachable.","priority":"HIGH","category":"INCIDENT"}
             """;
 
     @Container
@@ -295,19 +296,21 @@ class AuthenticationIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "title", "Printer offline", "description", "The printer is unreachable.",
-                                "priority", "HIGH", "requesterId", other.getId(), "requesterEmail", other.getEmail(),
+                                "priority", "HIGH", "category", "ACCESS_REQUEST", "requesterId", other.getId(), "requesterEmail", other.getEmail(),
                                 "requester", Map.of("id", other.getId()), "userId", other.getId()))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("OPEN"))
                 .andReturn();
 
         Map<String, Object> response = JsonPath.read(result.getResponse().getContentAsString(), "$");
-        assertThat(response).containsOnlyKeys("id", "title", "description", "status", "priority",
+        assertThat(response).containsOnlyKeys("id", "title", "description", "status", "priority", "category",
                 "createdAt", "updatedAt", "assignee");
         Long ticketId = ((Number) response.get("id")).longValue();
         ticketRepository.flush();
         entityManager.clear();
         Ticket persisted = ticketRepository.findById(ticketId).orElseThrow();
+        assertThat(response).containsEntry("category", "ACCESS_REQUEST");
+        assertThat(persisted.getCategory()).isEqualTo(TicketCategory.ACCESS_REQUEST);
         assertThat(persisted.getRequester().getId()).isEqualTo(authenticatedId).isNotEqualTo(other.getId());
         assertThat(persisted.getRequester().getEmail()).isEqualTo(EMAIL);
     }

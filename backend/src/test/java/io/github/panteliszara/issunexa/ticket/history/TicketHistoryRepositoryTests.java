@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.history;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketRepository;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
@@ -70,7 +71,7 @@ class TicketHistoryRepositoryTests {
         UserAccount requester = user("requester", UserRole.REQUESTER);
         actor = user("actor", UserRole.AGENT);
         assignee = user("assignee", UserRole.ADMIN);
-        ticket = tickets.saveAndFlush(new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, requester));
+        ticket = tickets.saveAndFlush(new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester));
     }
 
     @ParameterizedTest
@@ -183,7 +184,7 @@ class TicketHistoryRepositoryTests {
         Long lastTie = insert(ticket.getId(), actor.getId(), "ASSIGNEE_CLAIMED", null, null, assignee.getId());
         jdbc.update("UPDATE ticket_history_entries SET created_at = '2026-01-02T00:00:00Z'");
         jdbc.update("UPDATE ticket_history_entries SET created_at = '2026-01-01T00:00:00Z' WHERE id = ?", oldest);
-        Ticket other = tickets.saveAndFlush(new Ticket("Other", "Excluded", TicketStatus.OPEN, TicketPriority.LOW, actor));
+        Ticket other = tickets.saveAndFlush(new Ticket("Other", "Excluded", TicketStatus.OPEN, TicketPriority.LOW, TicketCategory.INCIDENT, actor));
         insert(other.getId(), actor.getId(), "TICKET_CREATED", null, "OPEN", null);
         entityManager.clear();
 

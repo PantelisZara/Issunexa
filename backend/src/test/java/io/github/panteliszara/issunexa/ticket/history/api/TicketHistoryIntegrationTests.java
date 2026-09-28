@@ -2,6 +2,7 @@ package io.github.panteliszara.issunexa.ticket.history.api;
 
 import com.jayway.jsonpath.JsonPath;
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketRepository;
 import io.github.panteliszara.issunexa.ticket.TicketService;
@@ -96,11 +97,11 @@ class TicketHistoryIntegrationTests {
         otherRequester = userAccountService.createUser("bob@example.com", "Bob", PASSWORD, UserRole.REQUESTER);
         agent = userAccountService.createUser("agent@example.com", "Agent", PASSWORD, UserRole.AGENT);
         admin = userAccountService.createUser("admin@example.com", "Admin", PASSWORD, UserRole.ADMIN);
-        ownedId = ticketService.createTicket("Alice's ticket", "Needs support", TicketPriority.HIGH, requester.getEmail()).getId();
-        foreignId = ticketService.createTicket("Bob's ticket", "Needs support", TicketPriority.LOW, otherRequester.getEmail()).getId();
+        ownedId = ticketService.createTicket("Alice's ticket", "Needs support", TicketPriority.HIGH, TicketCategory.INCIDENT, requester.getEmail()).getId();
+        foreignId = ticketService.createTicket("Bob's ticket", "Needs support", TicketPriority.LOW, TicketCategory.INCIDENT, otherRequester.getEmail()).getId();
         historicalId = jdbc.queryForObject("""
-                INSERT INTO tickets (title, description, status, priority, version, created_at, updated_at)
-                VALUES ('Historical', 'No requester', 'OPEN', 'LOW', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id
+                INSERT INTO tickets (category, title, description, status, priority, version, created_at, updated_at)
+                VALUES ('OTHER', 'Historical', 'No requester', 'OPEN', 'LOW', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id
                 """, Long.class);
     }
 
@@ -111,10 +112,11 @@ class TicketHistoryIntegrationTests {
         MvcResult created = mockMvc.perform(create(owner, ownerCsrf)
                         .param("actorEmail", admin.getEmail()).header("X-Actor-Email", admin.getEmail())
                         .content(objectMapper.writeValueAsString(Map.of("title", "Lifecycle", "description", "Details",
-                                "priority", "HIGH", "actorId", admin.getId(), "requesterId", admin.getId()))))
+                                "priority", "HIGH", "category", "INCIDENT", "actorId", admin.getId(), "requesterId", admin.getId()))))
                 .andExpect(status().isCreated()).andReturn();
         Long id = ((Number) JsonPath.read(created.getResponse().getContentAsString(), "$.id")).longValue();
-        assertThat(stored(id)).containsEntry("version", 0L);
+        assertThat(stored(id)).containsEntry("version", 0L).containsEntry("category", "INCIDENT");
+        assertThat(count(id)).isEqualTo(1);
         mockMvc.perform(get(path(id)).session(owner)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].type").value("TICKET_CREATED"))
                 .andExpect(jsonPath("$.content[0].newStatus").value("OPEN"))
@@ -125,14 +127,15 @@ class TicketHistoryIntegrationTests {
         mockMvc.perform(claim(id, staff, staffCsrf).param("actorId", admin.getId().toString())
                         .param("assigneeId", admin.getId().toString()))
                 .andExpect(status().isOk());
-        assertThat(stored(id)).containsEntry("version", 1L);
+        assertThat(stored(id)).containsEntry("version", 1L).containsEntry("category", "INCIDENT");
         mockMvc.perform(changeStatus(id, staff, staffCsrf, "IN_PROGRESS")
                         .header("X-Actor-Email", admin.getEmail()).param("actorEmail", admin.getEmail())
                         .content(objectMapper.writeValueAsString(Map.of("status", "IN_PROGRESS", "actorId", admin.getId(),
                                 "actorEmail", admin.getEmail(), "actor", Map.of("id", admin.getId())))))
                 .andExpect(status().isOk());
         assertThat(stored(id)).containsEntry("version", 2L).containsEntry("status", "IN_PROGRESS")
-                .containsEntry("requester_id", requester.getId()).containsEntry("assignee_id", agent.getId());
+                .containsEntry("requester_id", requester.getId()).containsEntry("assignee_id", agent.getId())
+                .containsEntry("category", "INCIDENT");
 
         // Equal timestamps prove that ID provides the deterministic newest-first tie-breaker.
         jdbc.update("UPDATE ticket_history_entries SET created_at = '2026-01-01T00:00:00Z' WHERE ticket_id = ?", id);
@@ -141,6 +144,7 @@ class TicketHistoryIntegrationTests {
                 .andExpect(jsonPath("$.page").value(0)).andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.totalElements").value(3)).andReturn();
         List<Map<String, Object>> entries = JsonPath.read(listed.getResponse().getContentAsString(), "$.content");
+        assertThat(stored(id)).containsEntry("category", "INCIDENT");
         assertThat(entries).extracting(row -> row.get("type")).containsExactly("STATUS_CHANGED", "ASSIGNEE_CLAIMED", "TICKET_CREATED");
         entries.forEach(this::assertSafeEntry);
         assertThat(entries.get(0)).containsEntry("previousStatus", "OPEN").containsEntry("newStatus", "IN_PROGRESS").containsEntry("assignee", null);
@@ -296,7 +300,7 @@ class TicketHistoryIntegrationTests {
 
     private MockHttpServletRequestBuilder create(MockHttpSession session, CsrfState csrf) {
         return post("/api/tickets").session(session).header(csrf.headerName(), csrf.token())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"Lifecycle\",\"description\":\"Details\",\"priority\":\"HIGH\"}");
+                .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"Lifecycle\",\"description\":\"Details\",\"priority\":\"HIGH\",\"category\":\"INCIDENT\"}");
     }
 
     private MockHttpServletRequestBuilder claim(Long id, MockHttpSession session, CsrfState csrf) {

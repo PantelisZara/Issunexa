@@ -2,6 +2,7 @@ package io.github.panteliszara.issunexa.ticket.api;
 
 import com.jayway.jsonpath.JsonPath;
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketRepository;
 import io.github.panteliszara.issunexa.ticket.TicketService;
@@ -101,13 +102,13 @@ class TicketAssignmentIntegrationTests {
         requester = userAccountService.createUser("requester@example.com", "Requester", PASSWORD, UserRole.REQUESTER);
         agent = userAccountService.createUser("agent@example.com", "Alice Agent", PASSWORD, UserRole.AGENT);
         admin = userAccountService.createUser("admin@example.com", "Alex Admin", PASSWORD, UserRole.ADMIN);
-        ownedId = ticketService.createTicket("Alpha ticket", "Needs support", TicketPriority.HIGH, requester.getEmail())
+        ownedId = ticketService.createTicket("Alpha ticket", "Needs support", TicketPriority.HIGH, TicketCategory.INCIDENT, requester.getEmail())
                 .getId();
-        staffOwnedId = ticketService.createTicket("Staff ticket", "Needs support", TicketPriority.HIGH, admin.getEmail())
+        staffOwnedId = ticketService.createTicket("Staff ticket", "Needs support", TicketPriority.HIGH, TicketCategory.INCIDENT, admin.getEmail())
                 .getId();
         historicalId = jdbc.queryForObject("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, version)
-                VALUES ('Historical ticket', 'Unknown requester', 'OPEN', 'LOW',
+                INSERT INTO tickets (category, title, description, status, priority, created_at, updated_at, version)
+                VALUES ('OTHER', 'Historical ticket', 'Unknown requester', 'OPEN', 'LOW',
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0) RETURNING id
                 """, Long.class);
     }
@@ -145,7 +146,8 @@ class TicketAssignmentIntegrationTests {
             assertAssignedResponse(mockMvc.perform(request), actor);
             assertThat(storedState(id)).containsEntry("assignee_id", actor.getId()).containsEntry("version", 1L)
                     .containsEntry("requester_id", before.get("requester_id"))
-                    .containsEntry("status", before.get("status"));
+                    .containsEntry("status", before.get("status"))
+                    .containsEntry("category", before.get("category"));
         }
     }
 
@@ -198,7 +200,7 @@ class TicketAssignmentIntegrationTests {
         CsrfState ownerCsrf = csrf(owner);
         MvcResult created = mockMvc.perform(post("/api/tickets").session(owner)
                         .header(ownerCsrf.headerName(), ownerCsrf.token()).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"New ticket\",\"description\":\"New issue\",\"priority\":\"LOW\"}"))
+                        .content("{\"title\":\"New ticket\",\"description\":\"New issue\",\"priority\":\"LOW\",\"category\":\"INCIDENT\"}"))
                 .andExpect(status().isCreated()).andReturn();
         Map<String, Object> body = responseBody(created);
         assertTicketKeys(body);
@@ -223,10 +225,10 @@ class TicketAssignmentIntegrationTests {
 
     @Test
     void requesterPageFetchesAssigneesWithoutPerTicketQueriesAndRetainsUnassignedRows() throws Exception {
-        Long second = ticketService.createTicket("Bravo ticket", "Needs support", TicketPriority.HIGH, requester.getEmail())
+        Long second = ticketService.createTicket("Bravo ticket", "Needs support", TicketPriority.HIGH, TicketCategory.INCIDENT, requester.getEmail())
                 .getId();
-        ticketService.createTicket("Charlie ticket", "Needs support", TicketPriority.HIGH, requester.getEmail());
-        ticketService.createTicket("Delta ticket", "Needs support", TicketPriority.HIGH, requester.getEmail());
+        ticketService.createTicket("Charlie ticket", "Needs support", TicketPriority.HIGH, TicketCategory.INCIDENT, requester.getEmail());
+        ticketService.createTicket("Delta ticket", "Needs support", TicketPriority.HIGH, TicketCategory.INCIDENT, requester.getEmail());
         MockHttpSession agentSession = login(agent);
         assertAssignedResponse(mockMvc.perform(claim(ownedId, agentSession, csrf(agentSession))), agent);
         MockHttpSession adminSession = login(admin);
@@ -329,7 +331,7 @@ class TicketAssignmentIntegrationTests {
     }
 
     private void assertTicketKeys(Map<String, Object> body) {
-        assertThat(body).containsOnlyKeys("id", "title", "description", "status", "priority",
+        assertThat(body).containsOnlyKeys("id", "title", "description", "status", "priority", "category",
                 "createdAt", "updatedAt", "assignee");
     }
 

@@ -59,7 +59,7 @@ class TicketOptimisticLockingIntegrationTests {
         jdbc.update("DELETE FROM users");
         agent = userAccountService.createUser("agent@example.com", "Agent", "locking test password", UserRole.AGENT);
         admin = userAccountService.createUser("admin@example.com", "Admin", "locking test password", UserRole.ADMIN);
-        ticketId = ticketService.createTicket("Printer offline", "No connection", TicketPriority.HIGH, agent.getEmail())
+        ticketId = ticketService.createTicket("Printer offline", "No connection", TicketPriority.HIGH, TicketCategory.INCIDENT, agent.getEmail())
                 .getId();
         SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
                 agent.getEmail(), null, List.of(new SimpleGrantedAuthority("ROLE_AGENT"))));

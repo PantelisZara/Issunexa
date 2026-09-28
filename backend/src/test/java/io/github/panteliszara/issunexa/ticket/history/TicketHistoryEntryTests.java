@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.history;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
 import io.github.panteliszara.issunexa.user.UserAccount;
@@ -17,7 +18,7 @@ class TicketHistoryEntryTests {
 
     private final UserAccount actor = new UserAccount("actor@example.com", "Actor", "test-hash", UserRole.AGENT);
     private final UserAccount assignee = new UserAccount("assignee@example.com", "Assignee", "test-hash", UserRole.ADMIN);
-    private final Ticket ticket = new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, actor);
+    private final Ticket ticket = new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, actor);
 
     @Test
     void createsStructuredCreationEntry() {

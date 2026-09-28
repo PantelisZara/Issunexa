@@ -29,9 +29,10 @@ public class TicketService {
     }
 
     @Transactional
-    public Ticket createTicket(String title, String description, TicketPriority priority, String requesterEmail) {
+    public Ticket createTicket(String title, String description, TicketPriority priority, TicketCategory category,
+            String requesterEmail) {
         UserAccount requester = resolveCurrentAccount(requesterEmail);
-        Ticket ticket = ticketRepository.save(new Ticket(title, description, TicketStatus.OPEN, priority, requester));
+        Ticket ticket = ticketRepository.save(new Ticket(title, description, TicketStatus.OPEN, priority, category, requester));
         ticketHistoryRepository.save(TicketHistoryEntry.ticketCreated(ticket, requester));
         return ticket;
     }
@@ -71,7 +72,7 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Ticket> listTickets(int page, int size, TicketStatus status, TicketPriority priority, String query,
+    public Page<Ticket> listTickets(int page, int size, TicketStatus status, TicketPriority priority, TicketCategory category, String query,
             TicketSortField sortField, TicketSortDirection sortDirection, String actorEmail) {
         UserAccount actor = resolveCurrentAccount(actorEmail);
         Sort.Direction direction = switch (sortDirection) {
@@ -88,6 +89,9 @@ public class TicketService {
         }
         if (priority != null) {
             specification = specification.and(TicketSpecifications.hasPriority(priority));
+        }
+        if (category != null) {
+            specification = specification.and(TicketSpecifications.hasCategory(category));
         }
         if (query != null) {
             specification = specification.and(TicketSpecifications.containsText(query));

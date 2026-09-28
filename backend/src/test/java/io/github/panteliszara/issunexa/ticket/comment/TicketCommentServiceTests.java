@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.comment;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketService;
@@ -47,7 +48,7 @@ class TicketCommentServiceTests {
 
     private final UserAccount author = new UserAccount(EMAIL, "Alice", "test-hash", UserRole.REQUESTER);
     private final Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN,
-            TicketPriority.MEDIUM, author);
+            TicketPriority.MEDIUM, TicketCategory.INCIDENT, author);
 
     @Test
     void checksVisibilityBeforeResolvingCanonicalActorAndSavingNormalizedComment() {

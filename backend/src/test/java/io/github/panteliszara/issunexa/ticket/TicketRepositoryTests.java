@@ -12,6 +12,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +67,92 @@ class TicketRepositoryTests {
 
     private UserAccount requester;
 
+    @ParameterizedTest
+    @EnumSource(TicketCategory.class)
+    void categoryRoundTripsAsStringAndSurvivesClaimAndStatus(TicketCategory category) {
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket("VPN", "Unavailable", TicketStatus.OPEN,
+                TicketPriority.HIGH, category, requester));
+        Long id = ticket.getId();
+        entityManager.clear();
+        assertThat(ticketRepository.findById(id).orElseThrow().getCategory()).isEqualTo(category);
+        assertThat(jdbcTemplate.queryForObject("SELECT category FROM tickets WHERE id = ?", String.class, id))
+                .isEqualTo(category.name());
+
+        ticketService.claimTicket(id, requester.getEmail());
+        ticketRepository.flush();
+        ticketService.changeStatus(id, TicketStatus.IN_PROGRESS, requester.getEmail());
+        ticketRepository.flush();
+        entityManager.clear();
+
+        Ticket reloaded = ticketRepository.findById(id).orElseThrow();
+        assertThat(reloaded.getCategory()).isEqualTo(category);
+        assertThat(reloaded.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+        assertThat(reloaded.getRequester().getId()).isEqualTo(requester.getId());
+        assertThat(reloaded.getAssignee().getId()).isEqualTo(requester.getId());
+        assertThat(reloaded.getVersion()).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"UNSUPPORTED", "incident", ""})
+    void rejectsInvalidCategoryThroughDirectSql(String category) {
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO tickets (title, description, status, priority, category, version, created_at, updated_at)
+                VALUES ('Invalid category', 'Details', 'OPEN', 'HIGH', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, category)).isInstanceOf(DataIntegrityViolationException.class).rootCause()
+                .isInstanceOfSatisfying(PSQLException.class, error -> {
+                    assertThat(error.getSQLState()).isEqualTo(category == null ? "23502" : "23514");
+                    if (category == null) {
+                        assertThat(error.getServerErrorMessage().getColumn()).isEqualTo("category");
+                    } else {
+                        assertThat(error.getServerErrorMessage().getConstraint()).isEqualTo("ck_tickets_category");
+                    }
+                });
+    }
+
+    @Test
+    void categoryFilteringComposesWithStatusPrioritySearchAndDeterministicPagination() {
+        Ticket first = categoryFixture("Same", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT);
+        Ticket second = categoryFixture("Same", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT);
+        Ticket service = categoryFixture("Same", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.SERVICE_REQUEST);
+        Ticket progressed = categoryFixture("Progressed", TicketStatus.IN_PROGRESS, TicketPriority.HIGH, TicketCategory.INCIDENT);
+        Ticket low = categoryFixture("Low", TicketStatus.OPEN, TicketPriority.LOW, TicketCategory.INCIDENT);
+        categoryFixture("Access", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.ACCESS_REQUEST);
+        entityManager.clear();
+
+        assertThat(categoryPage(0, 10, null, null, TicketCategory.INCIDENT, null).getContent())
+                .extracting(Ticket::getId).containsExactly(low.getId(), progressed.getId(), first.getId(), second.getId());
+        assertThat(categoryPage(0, 10, null, null, TicketCategory.SERVICE_REQUEST, null).getContent())
+                .extracting(Ticket::getId).containsExactly(service.getId());
+        assertThat(categoryPage(0, 10, TicketStatus.IN_PROGRESS, null, TicketCategory.INCIDENT, null).getContent())
+                .extracting(Ticket::getId).containsExactly(progressed.getId());
+        assertThat(categoryPage(0, 10, null, TicketPriority.LOW, TicketCategory.INCIDENT, null).getContent())
+                .extracting(Ticket::getId).containsExactly(low.getId());
+
+        Page<Ticket> page = categoryPage(0, 1, TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, "vPn");
+        Page<Ticket> next = categoryPage(1, 1, TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, "vPn");
+        assertThat(page.getContent()).extracting(Ticket::getId).containsExactly(first.getId());
+        assertThat(next.getContent()).extracting(Ticket::getId).containsExactly(second.getId());
+        assertThat(page.getTotalElements()).isEqualTo(2);
+        assertThat(page.getTotalPages()).isEqualTo(2);
+        assertThat(next.isLast()).isTrue();
+        assertThat(categoryPage(0, 10, null, null, TicketCategory.OTHER, null).getTotalElements()).isZero();
+        Page<Ticket> unmatched = categoryPage(0, 10, TicketStatus.CLOSED, null, TicketCategory.SERVICE_REQUEST, null);
+        assertThat(unmatched.getContent()).isEmpty();
+        assertThat(unmatched.getTotalElements()).isZero();
+        assertThat(categoryPage(0, 10, null, null, TicketCategory.INCIDENT, "absent").getContent()).isEmpty();
+    }
+
+    private Ticket categoryFixture(String title, TicketStatus status, TicketPriority priority, TicketCategory category) {
+        return ticketRepository.saveAndFlush(new Ticket(title, "VPN support", status, priority, category, requester));
+    }
+
+    private Page<Ticket> categoryPage(int page, int size, TicketStatus status, TicketPriority priority,
+            TicketCategory category, String query) {
+        return ticketService.listTickets(page, size, status, priority, category, query,
+                TicketSortField.TITLE, TicketSortDirection.ASC, requester.getEmail());
+    }
+
     @BeforeEach
     void createRequester() {
         // Staff identity keeps these persistence/query tests independent of ownership scoping.
@@ -82,7 +171,7 @@ class TicketRepositoryTests {
     @Test
     void persistsAndReloadsTicketWithLazyRequesterGeneratedIdEnumsAndTimestamps() {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.IN_PROGRESS, TicketPriority.HIGH, requester);
+                TicketStatus.IN_PROGRESS, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
 
         ticketRepository.saveAndFlush(ticket);
         assertThat(ticket.getId()).isPositive();
@@ -111,8 +200,8 @@ class TicketRepositoryTests {
     void loadsHistoricalTicketWithoutRequester() {
         // V4 intentionally preserves historical Tickets without inventing an owner.
         Long id = jdbcTemplate.queryForObject("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, version)
-                VALUES ('Historical ticket', 'Unknown requester', 'OPEN', 'LOW', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                INSERT INTO tickets (category, title, description, status, priority, created_at, updated_at, version)
+                VALUES ('OTHER', 'Historical ticket', 'Unknown requester', 'OPEN', 'LOW', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                 RETURNING id
                 """, Long.class);
         entityManager.clear();
@@ -126,8 +215,8 @@ class TicketRepositoryTests {
     @Test
     void rejectsNonexistentRequesterThroughSql() {
         assertThatThrownBy(() -> jdbcTemplate.update("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, requester_id, version)
-                VALUES ('Invalid owner', 'Missing User', 'OPEN', 'HIGH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, -1, 0)
+                INSERT INTO tickets (category, title, description, status, priority, created_at, updated_at, requester_id, version)
+                VALUES ('OTHER', 'Invalid owner', 'Missing User', 'OPEN', 'HIGH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, -1, 0)
                 """))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .rootCause()
@@ -140,7 +229,7 @@ class TicketRepositoryTests {
     @Test
     void deletingTicketDoesNotDeleteRequester() {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "No connection",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester));
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester));
 
         ticketRepository.delete(ticket);
         ticketRepository.flush();
@@ -153,7 +242,7 @@ class TicketRepositoryTests {
     @Test
     void updatesModificationTimeWhilePreservingCreationTime() {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "Original description",
-                TicketStatus.OPEN, TicketPriority.MEDIUM, requester));
+                TicketStatus.OPEN, TicketPriority.MEDIUM, TicketCategory.INCIDENT, requester));
 
         Ticket existing = reloadWithHistoricalTimestamps(ticket);
         Instant createdAt = existing.getCreatedAt();
@@ -174,7 +263,7 @@ class TicketRepositoryTests {
     @Test
     void persistsStatusChangeThroughDirtyCheckingAndAdvancesOnlyUpdatedAt() {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester));
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester));
         Ticket existing = reloadWithHistoricalTimestamps(ticket);
         Instant createdAt = existing.getCreatedAt();
         Instant updatedAt = existing.getUpdatedAt();
@@ -201,7 +290,7 @@ class TicketRepositoryTests {
     @Test
     void rejectedStatusChangeLeavesPersistedStatusAndTimestampsUnchanged() {
         Ticket ticket = ticketRepository.saveAndFlush(new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester));
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester));
         Ticket existing = reloadWithHistoricalTimestamps(ticket);
         Instant createdAt = existing.getCreatedAt();
         Instant updatedAt = existing.getUpdatedAt();
@@ -224,12 +313,12 @@ class TicketRepositoryTests {
 
     @Test
     void pagesTicketsByCreationTimeDescendingWithIdAsTieBreaker() {
-        Ticket oldest = new Ticket("Oldest", "Oldest ticket", TicketStatus.OPEN, TicketPriority.LOW, requester);
+        Ticket oldest = new Ticket("Oldest", "Oldest ticket", TicketStatus.OPEN, TicketPriority.LOW, TicketCategory.INCIDENT, requester);
         Ticket firstAtLatestTime = new Ticket("Latest first", "First at latest time",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester);
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         Ticket secondAtLatestTime = new Ticket("Latest second", "Second at latest time",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester);
-        Ticket middle = new Ticket("Middle", "Middle ticket", TicketStatus.OPEN, TicketPriority.MEDIUM, requester);
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
+        Ticket middle = new Ticket("Middle", "Middle ticket", TicketStatus.OPEN, TicketPriority.MEDIUM, TicketCategory.INCIDENT, requester);
         ticketRepository.saveAllAndFlush(List.of(oldest, firstAtLatestTime, secondAtLatestTime, middle));
 
         jdbcTemplate.update("""
@@ -243,9 +332,9 @@ class TicketRepositoryTests {
                 """, firstAtLatestTime.getId(), secondAtLatestTime.getId());
         entityManager.clear();
 
-        Page<Ticket> firstPage = ticketService.listTickets(0, 2, null, null, null,
+        Page<Ticket> firstPage = ticketService.listTickets(0, 2, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
-        Page<Ticket> secondPage = ticketService.listTickets(1, 2, null, null, null,
+        Page<Ticket> secondPage = ticketService.listTickets(1, 2, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(firstPage.getContent()).extracting(Ticket::getId)
@@ -267,9 +356,9 @@ class TicketRepositoryTests {
             TicketStatus status, TicketPriority priority, List<String> expectedTitles) {
         persistFilterFixtures();
 
-        Page<Ticket> firstPage = ticketService.listTickets(0, 2, status, priority, null,
+        Page<Ticket> firstPage = ticketService.listTickets(0, 2, status, priority, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
-        Page<Ticket> secondPage = ticketService.listTickets(1, 2, status, priority, null,
+        Page<Ticket> secondPage = ticketService.listTickets(1, 2, status, priority, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(firstPage.getContent()).extracting(Ticket::getTitle)
@@ -305,7 +394,7 @@ class TicketRepositoryTests {
     void returnsEmptyPageWhenNoTicketMatchesBothFilters() {
         persistFilterFixtures();
 
-        Page<Ticket> page = ticketService.listTickets(0, 2, TicketStatus.CLOSED, TicketPriority.HIGH, null,
+        Page<Ticket> page = ticketService.listTickets(0, 2, TicketStatus.CLOSED, TicketPriority.HIGH, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(page.getContent()).isEmpty();
@@ -367,12 +456,12 @@ class TicketRepositoryTests {
     void treatsLikeWildcardsAndEscapeCharacterLiterally(
             String query, String matchingTitle, String matchingDescription, String decoyTitle, String decoyDescription) {
         Ticket matching = new Ticket(matchingTitle, matchingDescription,
-                TicketStatus.OPEN, TicketPriority.HIGH, requester);
-        Ticket decoy = new Ticket(decoyTitle, decoyDescription, TicketStatus.OPEN, TicketPriority.HIGH, requester);
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
+        Ticket decoy = new Ticket(decoyTitle, decoyDescription, TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         ticketRepository.saveAllAndFlush(List.of(matching, decoy));
         entityManager.clear();
 
-        Page<Ticket> page = ticketService.listTickets(0, 20, null, null, query,
+        Page<Ticket> page = ticketService.listTickets(0, 20, null, null, null, query,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, requester.getEmail());
 
         assertThat(page.getContent()).extracting(Ticket::getId).containsExactly(matching.getId());
@@ -398,8 +487,8 @@ class TicketRepositoryTests {
     })
     void rejectsInvalidEnumValuesThroughSql(String status, String priority, String constraintName) {
         assertThatThrownBy(() -> jdbcTemplate.update("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                INSERT INTO tickets (category, title, description, status, priority, created_at, updated_at, version)
+                VALUES ('OTHER', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                 """, "Invalid ticket", "Invalid enum value", status, priority))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .rootCause()
@@ -416,7 +505,7 @@ class TicketRepositoryTests {
         int pagesToRead = Math.max(1, totalPages);
 
         for (int pageNumber = 0; pageNumber < pagesToRead; pageNumber++) {
-            Page<Ticket> page = ticketService.listTickets(pageNumber, size, status, priority, query,
+            Page<Ticket> page = ticketService.listTickets(pageNumber, size, status, priority, null, query,
                     sortField, direction, requester.getEmail());
 
             int start = pageNumber * size;
@@ -435,17 +524,17 @@ class TicketRepositoryTests {
     private List<Ticket> persistSearchFixtures() {
         List<Ticket> fixtures = ticketRepository.saveAllAndFlush(List.of(
                 new Ticket("Alpha LOGIN failure", "Account cannot be reached.",
-                        TicketStatus.OPEN, TicketPriority.HIGH, requester),
+                        TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester),
                 new Ticket("Bravo access issue", "User reports a login failure.",
-                        TicketStatus.OPEN, TicketPriority.HIGH, requester),
+                        TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester),
                 new Ticket("Charlie account issue", "Another login problem.",
-                        TicketStatus.OPEN, TicketPriority.LOW, requester),
+                        TicketStatus.OPEN, TicketPriority.LOW, TicketCategory.INCIDENT, requester),
                 new Ticket("Delta permissions", "LOGIN fails after reset.",
-                        TicketStatus.CLOSED, TicketPriority.HIGH, requester),
+                        TicketStatus.CLOSED, TicketPriority.HIGH, TicketCategory.INCIDENT, requester),
                 new Ticket("Echo network issue", "Connection reset before sign-in.",
-                        TicketStatus.OPEN, TicketPriority.HIGH, requester),
+                        TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester),
                 new Ticket("Alpha LOGIN failure", "Another LOGIN problem.",
-                        TicketStatus.OPEN, TicketPriority.HIGH, requester)
+                        TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester)
         ));
         entityManager.clear();
         return fixtures;
@@ -475,7 +564,7 @@ class TicketRepositoryTests {
     }
 
     private void persistFilterTicket(String title, TicketStatus status, TicketPriority priority, String createdAt) {
-        Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Filter fixture", status, priority, requester));
+        Ticket ticket = ticketRepository.saveAndFlush(new Ticket(title, "Filter fixture", status, priority, TicketCategory.INCIDENT, requester));
         jdbcTemplate.update("UPDATE tickets SET created_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?",
                 createdAt, ticket.getId());
     }
@@ -502,7 +591,7 @@ class TicketRepositoryTests {
     private Ticket persistSortingTicket(String title, TicketStatus status, TicketPriority priority,
             String createdAt, String updatedAt) {
         Ticket ticket = ticketRepository.saveAndFlush(
-                new Ticket(title, "Sorting fixture", status, priority, requester));
+                new Ticket(title, "Sorting fixture", status, priority, TicketCategory.INCIDENT, requester));
         jdbcTemplate.update("""
                 UPDATE tickets SET created_at = CAST(? AS TIMESTAMPTZ), updated_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?
                 """, createdAt, updatedAt, ticket.getId());

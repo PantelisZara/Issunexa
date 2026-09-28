@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.comment;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketRepository;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
@@ -72,7 +73,7 @@ class TicketCommentRepositoryTests {
                 new UserAccount("requester@example.com", "Requester", "test-hash", UserRole.REQUESTER));
         author = users.saveAndFlush(new UserAccount("author@example.com", "Author", "test-hash", UserRole.AGENT));
         ticket = tickets.saveAndFlush(new Ticket("Printer offline", "No connection", TicketStatus.OPEN,
-                TicketPriority.MEDIUM, requester));
+                TicketPriority.MEDIUM, TicketCategory.INCIDENT, requester));
     }
 
     @Test
@@ -172,7 +173,7 @@ class TicketCommentRepositoryTests {
         Long tiedFirst = insert(ticket.getId(), author.getId(), "Tied first", start.plusSeconds(1));
         Long earliest = insert(ticket.getId(), author.getId(), "Earliest", start);
         Long tiedSecond = insert(ticket.getId(), author.getId(), "Tied second", start.plusSeconds(1));
-        Ticket other = tickets.saveAndFlush(new Ticket("Other", "Exclude", TicketStatus.OPEN, TicketPriority.LOW, author));
+        Ticket other = tickets.saveAndFlush(new Ticket("Other", "Exclude", TicketStatus.OPEN, TicketPriority.LOW, TicketCategory.INCIDENT, author));
         insert(other.getId(), author.getId(), "Other ticket", start.minusSeconds(1));
         entityManager.clear();
 

@@ -29,6 +29,10 @@ public final class TicketSpecifications {
         return (root, query, builder) -> builder.equal(root.get("priority"), priority);
     }
 
+    public static Specification<Ticket> hasCategory(TicketCategory category) {
+        return (root, query, builder) -> builder.equal(root.get("category"), category);
+    }
+
     public static Specification<Ticket> containsText(String query) {
         String escaped = query.toLowerCase(Locale.ROOT)
                 .replace("\\", "\\\\")

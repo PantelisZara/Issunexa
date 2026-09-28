@@ -63,17 +63,18 @@ class TicketServiceTests {
         ReflectionTestUtils.setField(requester, "id", 7L);
     }
 
-    @Test
-    void resolvesCanonicalRequesterCreatesOpenTicketAndReturnsRepositoryResult() {
+    @ParameterizedTest
+    @EnumSource(TicketCategory.class)
+    void resolvesCanonicalRequesterCreatesOpenTicketAndReturnsRepositoryResult(TicketCategory category) {
         String title = "Printer offline";
         String description = "The office printer is unreachable.\nIt shows a network error.";
         TicketPriority priority = TicketPriority.HIGH;
-        Ticket persistedTicket = new Ticket(title, description, TicketStatus.OPEN, priority, requester);
+        Ticket persistedTicket = new Ticket(title, description, TicketStatus.OPEN, priority, category, requester);
         ReflectionTestUtils.setField(persistedTicket, "id", 42L);
         when(userAccountRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(requester));
         when(ticketRepository.save(any(Ticket.class))).thenReturn(persistedTicket);
 
-        Ticket result = ticketService.createTicket(title, description, priority, " \tAlice@Example.COM\n ");
+        Ticket result = ticketService.createTicket(title, description, priority, category, " \tAlice@Example.COM\n ");
 
         verify(userAccountRepository).findByEmail("alice@example.com");
         ArgumentCaptor<Ticket> ticketCaptor = ArgumentCaptor.forClass(Ticket.class);
@@ -82,6 +83,7 @@ class TicketServiceTests {
         assertThat(submittedTicket.getTitle()).isEqualTo(title);
         assertThat(submittedTicket.getDescription()).isEqualTo(description);
         assertThat(submittedTicket.getPriority()).isEqualTo(priority);
+        assertThat(submittedTicket.getCategory()).isEqualTo(category);
         assertThat(submittedTicket.getStatus()).isEqualTo(TicketStatus.OPEN);
         assertThat(submittedTicket.getRequester()).isSameAs(requester);
         assertThat(result).isSameAs(persistedTicket);
@@ -97,11 +99,21 @@ class TicketServiceTests {
     }
 
     @Test
+    void rejectsNullCategoryBeforePersistingTicketOrHistory() {
+        stubActor(UserRole.REQUESTER);
+
+        assertThatThrownBy(() -> ticketService.createTicket("Printer", "Offline", TicketPriority.HIGH, null, EMAIL))
+                .isInstanceOf(NullPointerException.class).hasMessage("category must not be null");
+
+        verifyNoInteractions(ticketRepository, historyRepository);
+    }
+
+    @Test
     void failsWithoutPersistingTicketWhenAuthenticatedAccountIsMissing() {
         when(userAccountRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> ticketService.createTicket("Printer offline", "The printer is unreachable.",
-                TicketPriority.HIGH, "missing@example.com"))
+                TicketPriority.HIGH, TicketCategory.INCIDENT, "missing@example.com"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Authenticated user account could not be resolved.");
         verify(userAccountRepository).findByEmail("missing@example.com");
@@ -115,7 +127,7 @@ class TicketServiceTests {
         stubActor(role);
         Long id = 42L;
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.IN_PROGRESS, TicketPriority.HIGH, requester);
+                TicketStatus.IN_PROGRESS, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         when(ticketRepository.findById(id)).thenReturn(Optional.of(ticket));
 
         Ticket result = ticketService.getTicket(id, EMAIL);
@@ -142,7 +154,7 @@ class TicketServiceTests {
     @Test
     void queriesRequesterTicketByIdAndOwnership() {
         stubActor(UserRole.REQUESTER);
-        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         when(ticketRepository.findOne(ArgumentMatchers.<Specification<Ticket>>any())).thenReturn(Optional.of(ticket));
 
         assertThat(ticketService.getTicket(42L, " \tAlice@Example.COM\n ")).isSameAs(ticket);
@@ -172,7 +184,7 @@ class TicketServiceTests {
         when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(page);
 
-        assertThat(ticketService.listTickets(0, 20, null, null, null,
+        assertThat(ticketService.listTickets(0, 20, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).isSameAs(page);
 
         verify(userAccountRepository).findByEmail(EMAIL);
@@ -186,7 +198,7 @@ class TicketServiceTests {
         when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(requester));
 
         assertThatThrownBy(() -> ticketService.getTicket(42L, EMAIL)).isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> ticketService.listTickets(0, 20, null, null, null,
+        assertThatThrownBy(() -> ticketService.listTickets(0, 20, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).isInstanceOf(NullPointerException.class);
         verifyNoInteractions(ticketRepository);
     }
@@ -196,7 +208,7 @@ class TicketServiceTests {
         when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> ticketService.getTicket(42L, EMAIL)).isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> ticketService.listTickets(0, 20, null, null, null,
+        assertThatThrownBy(() -> ticketService.listTickets(0, 20, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).isInstanceOf(IllegalStateException.class);
         verifyNoInteractions(ticketRepository);
     }
@@ -205,7 +217,7 @@ class TicketServiceTests {
     @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
     void claimsForCanonicalActorAndReturnsManagedTicketWithoutSaving(UserRole role) {
         UserAccount actor = new UserAccount(EMAIL, "Alice Staff", "encoded-test-value", role);
-        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(actor));
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
 
@@ -239,7 +251,7 @@ class TicketServiceTests {
     @Test
     void propagatesAlreadyAssignedConflictWithoutSaving() {
         stubActor(UserRole.ADMIN);
-        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         UserAccount original = new UserAccount("agent@example.com", "Agent", "encoded-test-value", UserRole.AGENT);
         ticket.claim(original);
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
@@ -258,7 +270,7 @@ class TicketServiceTests {
         UserAccount actor = new UserAccount(EMAIL, "Agent", "test-hash", UserRole.AGENT);
         when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(actor));
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester);
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
 
         Ticket result = ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS, EMAIL);
@@ -293,7 +305,7 @@ class TicketServiceTests {
     void propagatesInvalidStatusTransition() {
         stubActor(UserRole.AGENT);
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester);
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> ticketService.changeStatus(42L, TicketStatus.CLOSED, EMAIL))
@@ -310,12 +322,12 @@ class TicketServiceTests {
             TicketSortField sortField, TicketSortDirection direction, Sort.Order primaryOrder, Sort.Order idOrder) {
         stubActor(UserRole.REQUESTER);
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
-                TicketStatus.OPEN, TicketPriority.HIGH, requester);
+                TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, requester);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
         when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(repositoryResult);
 
-        Page<Ticket> result = ticketService.listTickets(2, 10, null, null, null, sortField, direction, EMAIL);
+        Page<Ticket> result = ticketService.listTickets(2, 10, null, null, null, null, sortField, direction, EMAIL);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(ticketRepository).findAll(ArgumentMatchers.<Specification<Ticket>>notNull(), pageableCaptor.capture());
@@ -328,12 +340,12 @@ class TicketServiceTests {
     void listsTicketsWithAllSearchCriteriaAndReturnsRepositoryPage() {
         stubActor(UserRole.REQUESTER);
         Ticket ticket = new Ticket("Login failure", "The account is unreachable.",
-                TicketStatus.IN_PROGRESS, TicketPriority.URGENT, requester);
+                TicketStatus.IN_PROGRESS, TicketPriority.URGENT, TicketCategory.INCIDENT, requester);
         Page<Ticket> repositoryResult = new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 21);
         when(ticketRepository.findAll(ArgumentMatchers.<Specification<Ticket>>any(), any(Pageable.class)))
                 .thenReturn(repositoryResult);
 
-        Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, "login",
+        Page<Ticket> result = ticketService.listTickets(2, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, TicketCategory.INCIDENT, "login",
                 TicketSortField.UPDATED_AT, TicketSortDirection.ASC, EMAIL);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);

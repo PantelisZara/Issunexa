@@ -42,6 +42,10 @@ public class Ticket {
     @Column(name = "priority", nullable = false, length = 20)
     private TicketPriority priority;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category", nullable = false, length = 20, updatable = false)
+    private TicketCategory category;
+
     // Historical rows may be unowned; application creation requires a requester.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "requester_id", nullable = true, updatable = false)
@@ -65,11 +69,12 @@ public class Ticket {
     }
 
     public Ticket(String title, String description, TicketStatus status, TicketPriority priority,
-            UserAccount requester) {
+            TicketCategory category, UserAccount requester) {
         this.title = title;
         this.description = description;
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.priority = priority;
+        this.category = Objects.requireNonNull(category, "category must not be null");
         this.requester = Objects.requireNonNull(requester, "requester must not be null");
     }
 
@@ -95,6 +100,10 @@ public class Ticket {
 
     public UserAccount getRequester() {
         return requester;
+    }
+
+    public TicketCategory getCategory() {
+        return category;
     }
 
     public UserAccount getAssignee() {

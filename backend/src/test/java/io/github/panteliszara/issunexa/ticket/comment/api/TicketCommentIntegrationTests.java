@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.comment.api;
 
 import com.jayway.jsonpath.JsonPath;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketService;
 import io.github.panteliszara.issunexa.user.UserAccount;
@@ -81,11 +82,11 @@ class TicketCommentIntegrationTests {
         otherRequester = userAccountService.createUser("bob@example.com", "Bob", PASSWORD, UserRole.REQUESTER);
         agent = userAccountService.createUser("agent@example.com", "Support Agent", PASSWORD, UserRole.AGENT);
         admin = userAccountService.createUser("admin@example.com", "Support Admin", PASSWORD, UserRole.ADMIN);
-        ownedId = ticketService.createTicket("Alice's ticket", "Needs support", TicketPriority.HIGH, requester.getEmail()).getId();
-        foreignId = ticketService.createTicket("Bob's ticket", "Needs support", TicketPriority.LOW, otherRequester.getEmail()).getId();
+        ownedId = ticketService.createTicket("Alice's ticket", "Needs support", TicketPriority.HIGH, TicketCategory.INCIDENT, requester.getEmail()).getId();
+        foreignId = ticketService.createTicket("Bob's ticket", "Needs support", TicketPriority.LOW, TicketCategory.INCIDENT, otherRequester.getEmail()).getId();
         historicalId = jdbc.queryForObject("""
-                INSERT INTO tickets (title, description, status, priority, version, created_at, updated_at)
-                VALUES ('Historical ticket', 'Unknown requester', 'OPEN', 'LOW', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO tickets (category, title, description, status, priority, version, created_at, updated_at)
+                VALUES ('OTHER', 'Historical ticket', 'Unknown requester', 'OPEN', 'LOW', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 RETURNING id
                 """, Long.class);
     }
@@ -192,7 +193,7 @@ class TicketCommentIntegrationTests {
         assertThat(commentCount()).isEqualTo(1);
         assertThat(storedTicket(ownedId)).isEqualTo(before).containsEntry("version", 7L)
                 .containsEntry("status", "CLOSED").containsEntry("requester_id", requester.getId())
-                .containsEntry("assignee_id", agent.getId());
+                .containsEntry("assignee_id", agent.getId()).containsEntry("category", "INCIDENT");
         mockMvc.perform(get(path(ownedId)).session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1));
     }

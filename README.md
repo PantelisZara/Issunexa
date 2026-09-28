@@ -82,7 +82,9 @@ When the application is running locally, OpenAPI JSON is available at `/v3/api-d
 | GET | `/api/tickets/{ticketId}/comments` | `200 OK`, Comment content and page metadata |
 | GET | `/api/tickets/{ticketId}/history` | `200 OK`, lifecycle history and page metadata |
 
-Creation accepts `title`, `description` and `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`). Title and description must not be blank; title is limited to 255 characters and priority is required. New Tickets start as `OPEN`.
+Creation accepts `title`, `description`, `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`) and `category`. Title and description must not be blank; title is limited to 255 characters, and priority and category are required. New Tickets start as `OPEN`.
+
+Category is a controlled classification selected at creation: `INCIDENT`, `SERVICE_REQUEST`, `ACCESS_REQUEST` or `OTHER`. It is returned in every Ticket response and cannot be changed. Pre-V9 Tickets migrate to `OTHER` because their original category is unknown. There is no category administration API.
 
 AGENT and ADMIN can claim an unassigned Ticket for themselves with no request body. The authenticated account becomes the assignee; clients cannot select another account. Claiming preserves requester and status. Any repeated claim returns `409`, including a repeat by the same staff account. Ticket responses contain `assignee: null` when unassigned, or an assignee summary with only `id` and `displayName`.
 
@@ -97,11 +99,11 @@ Status changes accept only `status`, for example `PATCH /api/tickets/42/status` 
 
 Listing accepts zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`). For example, `GET /api/tickets?page=2&size=10` retrieves the third page. Empty pages return an empty `content` array with page metadata.
 
-Optional listing filters are `status` (`OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`) and `priority` (`LOW`, `MEDIUM`, `HIGH`, `URGENT`). Each accepts a single, case-sensitive value. Both filters use AND semantics: `GET /api/tickets?status=OPEN&priority=HIGH&page=0&size=10` returns only open, high-priority Tickets. Filtering occurs before pagination; omitting both filters leaves status and priority unrestricted.
+Optional listing filters are `status` (`OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`), `priority` (`LOW`, `MEDIUM`, `HIGH`, `URGENT`) and `category` (the four values above). Each accepts a single, case-sensitive value. Filters use AND semantics: `GET /api/tickets?category=INCIDENT&status=OPEN&priority=HIGH&page=0&size=10` returns only matching visible Tickets. Filtering occurs before pagination; omitted filters impose no restriction.
 
 Sorting accepts `sortBy` (`createdAt`, `updatedAt`, `title`) and `direction` (`asc`, `desc`), defaulting to `createdAt` and `desc`. Each accepts one case-sensitive value. For example, `GET /api/tickets?sortBy=title&direction=asc` orders by title ascending, then ID ascending. The ID tie-breaker always uses the selected direction.
 
-Optional `q` performs case-insensitive substring search in title or description. A supplied value must contain non-whitespace text and be at most 100 characters before trimming; surrounding whitespace is trimmed. `%`, `_` and `\` match literally. Search combines with status and priority using AND, for example `GET /api/tickets?q=login&status=OPEN&priority=HIGH`.
+Optional `q` performs case-insensitive substring search in title or description. A supplied value must contain non-whitespace text and be at most 100 characters before trimming; surrounding whitespace is trimmed. `%`, `_` and `\` match literally. Search combines with status, priority and category using AND, for example `GET /api/tickets?q=login&category=INCIDENT&status=OPEN&priority=HIGH`.
 
 Invalid input returns `400`; a missing Ticket returns `404`. Errors use `application/problem+json`, with field details for validation failures.
 

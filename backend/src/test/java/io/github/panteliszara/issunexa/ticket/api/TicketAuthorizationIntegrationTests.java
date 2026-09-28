@@ -2,6 +2,7 @@ package io.github.panteliszara.issunexa.ticket.api;
 
 import com.jayway.jsonpath.JsonPath;
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketRepository;
 import io.github.panteliszara.issunexa.ticket.TicketService;
@@ -97,6 +98,33 @@ class TicketAuthorizationIntegrationTests {
     private Long historicalId;
     private List<Long> allIds;
 
+    @Test
+    void categoryFilterCombinesWithOwnershipAndStaffVisibilityThroughHttp() throws Exception {
+        ticketService.createTicket("Another login", "Login request", TicketPriority.HIGH,
+                TicketCategory.SERVICE_REQUEST, REQUESTER_A);
+        ticketRepository.flush();
+        entityManager.clear();
+        MockHttpSession requester = login(REQUESTER_A);
+        List<Long> expected = List.of(secondOwnedId, firstOwnedId);
+        for (int page = 0; page < expected.size(); page++) {
+            mockMvc.perform(get("/api/tickets").session(requester)
+                            .param("category", "INCIDENT").param("status", "OPEN").param("priority", "HIGH")
+                            .param("q", "LoGiN").param("sortBy", "title").param("direction", "desc")
+                            .param("size", "1").param("page", Integer.toString(page)))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(1))
+                    .andExpect(jsonPath("$.content[0].id").value(expected.get(page)))
+                    .andExpect(jsonPath("$.content[0].category").value("INCIDENT"))
+                    .andExpect(jsonPath("$.totalElements").value(2)).andExpect(jsonPath("$.totalPages").value(2));
+        }
+        mockMvc.perform(get("/api/tickets").session(login("agent@example.com"))
+                        .param("category", "INCIDENT").param("q", "login")
+                        .param("sortBy", "title").param("direction", "asc"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.content[0].id").value(hiddenId))
+                .andExpect(jsonPath("$.content[1].id").value(firstOwnedId))
+                .andExpect(jsonPath("$.content[2].id").value(secondOwnedId));
+    }
+
     @BeforeEach
     void createAccountsAndTickets() {
         userAccountService.createUser(REQUESTER_A, "Requester A", PASSWORD, UserRole.REQUESTER);
@@ -113,8 +141,8 @@ class TicketAuthorizationIntegrationTests {
         Long adminId = createTicket("Admin note", TicketPriority.HIGH, "admin@example.com").getId();
         // The schema intentionally permits historical Tickets whose requester is unknown.
         historicalId = jdbcTemplate.queryForObject("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, version)
-                VALUES ('Ancient login', 'Login failure', 'OPEN', 'HIGH',
+                INSERT INTO tickets (category, title, description, status, priority, created_at, updated_at, version)
+                VALUES ('OTHER', 'Ancient login', 'Login failure', 'OPEN', 'HIGH',
                         TIMESTAMPTZ '2000-01-01 00:00:00+00', TIMESTAMPTZ '2000-01-01 00:00:00+00', 0) RETURNING id
                 """, Long.class);
         ticketRepository.flush();
@@ -288,7 +316,7 @@ class TicketAuthorizationIntegrationTests {
     void flywayCreatesOnlyTheRequesterBtreeIndexInV5() {
         assertThat(jdbcTemplate.queryForList("""
                 SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank
-                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
+                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'tickets'
                 """, String.class)).containsExactlyInAnyOrder("pk_tickets", "idx_tickets_requester_id");
@@ -300,7 +328,7 @@ class TicketAuthorizationIntegrationTests {
     }
 
     private Ticket createTicket(String title, TicketPriority priority, String email) {
-        return ticketService.createTicket(title, "Ticket description", priority, email);
+        return ticketService.createTicket(title, "Ticket description", priority, TicketCategory.INCIDENT, email);
     }
 
     private Map<String, Object> storedState(Long id) {
@@ -345,7 +373,7 @@ class TicketAuthorizationIntegrationTests {
     private void assertTicketResponse(ResultActions result, Long id) throws Exception {
         MvcResult response = result.andExpect(status().isOk()).andExpect(jsonPath("$.id").value(id)).andReturn();
         Map<String, Object> body = JsonPath.read(response.getResponse().getContentAsString(), "$");
-        assertThat(body).containsOnlyKeys("id", "title", "description", "status", "priority", "createdAt", "updatedAt", "assignee");
+        assertThat(body).containsOnlyKeys("id", "title", "description", "status", "priority", "category", "createdAt", "updatedAt", "assignee");
     }
 
     private void assertProblem(ResultActions result, int code, String title, String detail, String instance)

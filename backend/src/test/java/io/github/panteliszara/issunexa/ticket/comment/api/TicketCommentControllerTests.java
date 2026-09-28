@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.comment.api;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
@@ -196,7 +197,7 @@ class TicketCommentControllerTests {
     private TicketComment comment() {
         UserAccount author = new UserAccount(EMAIL, "Alice", "secret-hash", UserRole.REQUESTER);
         ReflectionTestUtils.setField(author, "id", 3L);
-        Ticket ticket = new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, author);
+        Ticket ticket = new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, author);
         TicketComment comment = new TicketComment(ticket, author, "Comment");
         ReflectionTestUtils.setField(comment, "id", 7L);
         ReflectionTestUtils.setField(comment, "createdAt", Instant.parse("2026-01-01T10:00:00Z"));

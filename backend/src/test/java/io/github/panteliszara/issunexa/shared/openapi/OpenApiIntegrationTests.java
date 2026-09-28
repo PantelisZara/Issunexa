@@ -272,9 +272,9 @@ class OpenApiIntegrationTests {
     void documentsPublicRequestAndPaginationSchemas() throws Exception {
         DocumentContext api = apiDocs();
         Map<String, Object> create = api.read("$.components.schemas.CreateTicketRequest.properties");
-        assertThat(create).containsOnlyKeys("title", "description", "priority");
+        assertThat(create).containsOnlyKeys("title", "description", "priority", "category");
         Map<String, Object> ticket = api.read("$.components.schemas.TicketResponse.properties");
-        assertThat(ticket).containsOnlyKeys("id", "title", "description", "status", "priority",
+        assertThat(ticket).containsOnlyKeys("id", "title", "description", "status", "priority", "category",
                 "createdAt", "updatedAt", "assignee");
         assertThat(api.read("$.components.schemas.CreateTicketRequest.properties.title.minLength", Integer.class))
                 .isEqualTo(1);
@@ -295,7 +295,7 @@ class OpenApiIntegrationTests {
         DocumentContext api = apiDocs();
         List<Map<String, Object>> parameters = api.read("$.paths['/api/tickets'].get.parameters");
         assertThat(parameters).extracting(parameter -> parameter.get("name"))
-                .containsExactlyInAnyOrder("page", "size", "status", "priority", "sortBy", "direction", "q");
+                .containsExactlyInAnyOrder("page", "size", "status", "priority", "category", "sortBy", "direction", "q");
         assertThat(parameters).allSatisfy(parameter ->
                 assertThat(parameter).containsEntry("in", "query").containsEntry("required", false));
 
@@ -308,8 +308,27 @@ class OpenApiIntegrationTests {
         assertThat(parameterSchema(api, "direction")).containsEntry("default", "desc");
         assertParameterValues(api, "status", "OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED");
         assertParameterValues(api, "priority", "LOW", "MEDIUM", "HIGH", "URGENT");
+        assertParameterValues(api, "category", "INCIDENT", "SERVICE_REQUEST", "ACCESS_REQUEST", "OTHER");
         assertParameterValues(api, "sortBy", "createdAt", "updatedAt", "title");
         assertParameterValues(api, "direction", "asc", "desc");
+    }
+
+    @Test
+    void documentsRequiredNonNullableControlledCategoryWithoutManagementPaths() throws Exception {
+        DocumentContext api = apiDocs();
+        for (String schema : List.of("CreateTicketRequest", "TicketResponse")) {
+            List<String> required = api.read("$.components.schemas." + schema + ".required");
+            assertThat(required).contains("category");
+            Map<String, Object> category = api.read("$.components.schemas." + schema + ".properties.category");
+            assertThat(allowsNull(category)).isFalse();
+            assertThat(category).doesNotContainKey("default");
+            List<String> values = api.read("$.components.schemas." + schema + ".properties.category.enum");
+            assertThat(values).containsExactlyInAnyOrder("INCIDENT", "SERVICE_REQUEST", "ACCESS_REQUEST", "OTHER");
+        }
+        assertThat(parameterSchema(api, "category")).doesNotContainKey("default");
+        Map<String, Object> paths = api.read("$.paths");
+        assertThat(paths.keySet()).noneMatch(path -> path.contains("categor"));
+        assertThat(api.read("$.paths['/api/tickets'].post.description", String.class)).contains("required and immutable");
     }
 
     @Test

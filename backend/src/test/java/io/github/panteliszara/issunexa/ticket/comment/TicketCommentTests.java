@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.comment;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
 import io.github.panteliszara.issunexa.user.UserAccount;
@@ -18,7 +19,7 @@ class TicketCommentTests {
 
     private final UserAccount author = new UserAccount("alice@example.com", "Alice", "test-hash", UserRole.REQUESTER);
     private final Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN,
-            TicketPriority.MEDIUM, author);
+            TicketPriority.MEDIUM, TicketCategory.INCIDENT, author);
 
     @Test
     void retainsTicketAndAuthorWhileStrippingOnlyOuterWhitespace() {

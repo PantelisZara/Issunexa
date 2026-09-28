@@ -3,6 +3,7 @@ package io.github.panteliszara.issunexa.ticket.api;
 import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
 import io.github.panteliszara.issunexa.ticket.Ticket;
 import io.github.panteliszara.issunexa.ticket.TicketAlreadyAssignedException;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketService;
@@ -14,6 +15,7 @@ import io.github.panteliszara.issunexa.user.UserRole;
 import jakarta.persistence.OptimisticLockException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -65,29 +67,61 @@ class TicketControllerTests {
     private TicketService ticketService;
 
     @ParameterizedTest
+    @EnumSource(TicketCategory.class)
+    void createsTicketWithExplicitCategoryFromBody(TicketCategory category) throws Exception {
+        when(ticketService.createTicket("Printer", "The office printer is unreachable.", TicketPriority.HIGH, category, EMAIL))
+                .thenReturn(persistedTicket("Printer", TicketStatus.OPEN, TicketPriority.HIGH, category));
+
+        mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
+                        .param("category", "OTHER").header("X-Category", "OTHER")
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"title":"Printer","description":"The office printer is unreachable.",
+                                 "priority":"HIGH","category":"%s"}
+                                """.formatted(category)))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.category").value(category.name()));
+
+        verify(ticketService).createTicket("Printer", "The office printer is unreachable.", TicketPriority.HIGH, category, EMAIL);
+    }
+
+    @ParameterizedTest
+    @EnumSource(TicketCategory.class)
+    void delegatesCategoryListingFilter(TicketCategory category) throws Exception {
+        Ticket ticket = persistedTicket("Printer", TicketStatus.OPEN, TicketPriority.HIGH, category);
+        when(ticketService.listTickets(0, 20, null, null, category, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
+                .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/api/tickets").principal(() -> EMAIL).param("category", category.name()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].category").value(category.name()));
+
+        verify(ticketService).listTickets(0, 20, null, null, category, null,
+                TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
+    }
+
+    @ParameterizedTest
     @MethodSource("validTitles")
     void createsTicketWithLocationAndResponse(String title) throws Exception {
         Ticket ticket = persistedTicket(title, TicketStatus.OPEN);
-        when(ticketService.createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH, EMAIL))
+        when(ticketService.createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH, TicketCategory.INCIDENT, EMAIL))
                 .thenReturn(ticket);
 
         mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title":"%s","description":"The office printer is unreachable.","priority":"HIGH"}
+                                {"title":"%s","description":"The office printer is unreachable.","priority":"HIGH","category":"INCIDENT"}
                                 """.formatted(title)))
                 .andExpect(status().isCreated())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(header().string("Location", "http://localhost/api/tickets/42"))
                 .andExpect(content().json(ticketJson(title, "OPEN"), JsonCompareMode.STRICT));
 
-        verify(ticketService).createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH, EMAIL);
+        verify(ticketService).createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH, TicketCategory.INCIDENT, EMAIL);
     }
 
     @Test
     void derivesRequesterOnlyFromPrincipalDespiteClientSuppliedIdentity() throws Exception {
         when(ticketService.createTicket("Printer offline", "The office printer is unreachable.",
-                TicketPriority.HIGH, EMAIL)).thenReturn(persistedTicket("Printer offline", TicketStatus.OPEN));
+                TicketPriority.HIGH, TicketCategory.INCIDENT, EMAIL)).thenReturn(persistedTicket("Printer offline", TicketStatus.OPEN));
 
         mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
                         .queryParam("requesterEmail", "other@example.com")
@@ -95,7 +129,7 @@ class TicketControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":"Printer offline","description":"The office printer is unreachable.",
-                                 "priority":"HIGH","requesterId":99,"requesterEmail":"other@example.com",
+                                 "priority":"HIGH","category":"INCIDENT","requesterId":99,"requesterEmail":"other@example.com",
                                  "requester":{"id":99},"userId":99}
                                 """))
                 .andExpect(status().isCreated())
@@ -103,7 +137,7 @@ class TicketControllerTests {
                 .andExpect(content().json(ticketJson("Printer offline", "OPEN"), JsonCompareMode.STRICT));
 
         verify(ticketService).createTicket("Printer offline", "The office printer is unreachable.",
-                TicketPriority.HIGH, EMAIL);
+                TicketPriority.HIGH, TicketCategory.INCIDENT, EMAIL);
     }
 
     @Test
@@ -328,6 +362,7 @@ class TicketControllerTests {
     @MethodSource("invalidRequests")
     void rejectsInvalidRequestBeforeCallingService(String scenario, String request, String field) throws Exception {
         mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
+                        .param("category", "OTHER").header("X-Category", "OTHER")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request))
                 .andExpect(status().isBadRequest())
@@ -347,32 +382,38 @@ class TicketControllerTests {
     static Stream<Arguments> invalidRequests() {
         return Stream.of(
                 Arguments.of("blank title", """
-                        {"title":" ","description":"Description","priority":"HIGH"}
+                        {"title":" ","description":"Description","priority":"HIGH","category":"INCIDENT"}
                         """, "title"),
                 Arguments.of("missing title", """
-                        {"description":"Description","priority":"HIGH"}
+                        {"description":"Description","priority":"HIGH","category":"INCIDENT"}
                         """, "title"),
                 Arguments.of("null title", """
-                        {"title":null,"description":"Description","priority":"HIGH"}
+                        {"title":null,"description":"Description","priority":"HIGH","category":"INCIDENT"}
                         """, "title"),
                 Arguments.of("title longer than 255", """
-                        {"title":"%s","description":"Description","priority":"HIGH"}
+                        {"title":"%s","description":"Description","priority":"HIGH","category":"INCIDENT"}
                         """.formatted("t".repeat(256)), "title"),
                 Arguments.of("blank description", """
-                        {"title":"Title","description":" ","priority":"HIGH"}
+                        {"title":"Title","description":" ","priority":"HIGH","category":"INCIDENT"}
                         """, "description"),
                 Arguments.of("missing description", """
-                        {"title":"Title","priority":"HIGH"}
+                        {"title":"Title","priority":"HIGH","category":"INCIDENT"}
                         """, "description"),
                 Arguments.of("null description", """
-                        {"title":"Title","description":null,"priority":"HIGH"}
+                        {"title":"Title","description":null,"priority":"HIGH","category":"INCIDENT"}
                         """, "description"),
                 Arguments.of("missing priority", """
-                        {"title":"Title","description":"Description"}
+                        {"title":"Title","description":"Description","category":"INCIDENT"}
                         """, "priority"),
                 Arguments.of("null priority", """
-                        {"title":"Title","description":"Description","priority":null}
-                        """, "priority")
+                        {"title":"Title","description":"Description","priority":null,"category":"INCIDENT"}
+                        """, "priority"),
+                Arguments.of("missing category", """
+                        {"title":"Title","description":"Description","priority":"HIGH"}
+                        """, "category"),
+                Arguments.of("null category", """
+                        {"title":"Title","description":"Description","priority":"HIGH","category":null}
+                        """, "category")
         );
     }
 
@@ -381,7 +422,7 @@ class TicketControllerTests {
         mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title":" ","description":" ","priority":null}
+                                {"title":" ","description":" ","priority":null,"category":"INCIDENT"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -405,7 +446,9 @@ class TicketControllerTests {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "{\"title\":\"Title\",\"description\":\"Description\",\"priority\":\"UNSUPPORTED\"}",
+            "{\"title\":\"Title\",\"description\":\"Description\",\"priority\":\"UNSUPPORTED\",\"category\":\"INCIDENT\"}",
+            "{\"title\":\"Title\",\"description\":\"Description\",\"priority\":\"HIGH\",\"category\":\"UNSUPPORTED\"}",
+            "{\"title\":\"Title\",\"description\":\"Description\",\"priority\":\"HIGH\",\"category\":\"incident\"}",
             "{\"title\":"
     })
     void returnsSafeProblemDetailForUnreadableBody(String request) throws Exception {
@@ -430,7 +473,7 @@ class TicketControllerTests {
     @Test
     void listsTicketsWithDefaultPaginationAndSorting() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20, null, null, null,
+        when(ticketService.listTickets(0, 20, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
@@ -449,14 +492,14 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "OPEN")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(0, 20, null, null, null,
+        verify(ticketService).listTickets(0, 20, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsWithCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS);
-        when(ticketService.listTickets(2, 10, null, null, null,
+        when(ticketService.listTickets(2, 10, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(2, 10), 45));
 
@@ -475,14 +518,14 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Printer offline", "IN_PROGRESS")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(2, 10, null, null, null,
+        verify(ticketService).listTickets(2, 10, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsByStatus() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20, TicketStatus.OPEN, null, null,
+        when(ticketService.listTickets(0, 20, TicketStatus.OPEN, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
@@ -495,14 +538,14 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.totalElements").value(1));
 
-        verify(ticketService).listTickets(0, 20, TicketStatus.OPEN, null, null,
+        verify(ticketService).listTickets(0, 20, TicketStatus.OPEN, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsByPriority() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
-        when(ticketService.listTickets(0, 20, null, TicketPriority.HIGH, null,
+        when(ticketService.listTickets(0, 20, null, TicketPriority.HIGH, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(0, 20), 1));
 
@@ -515,14 +558,14 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.totalElements").value(1));
 
-        verify(ticketService).listTickets(0, 20, null, TicketPriority.HIGH, null,
+        verify(ticketService).listTickets(0, 20, null, TicketPriority.HIGH, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
     @Test
     void listsTicketsByStatusAndPriorityWithCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Printer offline", TicketStatus.IN_PROGRESS, TicketPriority.URGENT);
-        when(ticketService.listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null,
+        when(ticketService.listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(1, 10), 11));
 
@@ -546,7 +589,7 @@ class TicketControllerTests {
                         """.formatted(ticketJson("Printer offline", "IN_PROGRESS", "URGENT")),
                         JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null,
+        verify(ticketService).listTickets(1, 10, TicketStatus.IN_PROGRESS, TicketPriority.URGENT, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
@@ -564,7 +607,7 @@ class TicketControllerTests {
     void listsTicketsWithControlledSorting(
             String sortBy, String direction, TicketSortField expectedField, TicketSortDirection expectedDirection)
             throws Exception {
-        when(ticketService.listTickets(0, 20, null, null, null, expectedField, expectedDirection, EMAIL))
+        when(ticketService.listTickets(0, 20, null, null, null, null, expectedField, expectedDirection, EMAIL))
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
         MockHttpServletRequestBuilder request = get("/api/tickets").principal(() -> EMAIL);
         if (sortBy != null) {
@@ -589,13 +632,13 @@ class TicketControllerTests {
                         }
                         """, JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(0, 20, null, null, null, expectedField, expectedDirection, EMAIL);
+        verify(ticketService).listTickets(0, 20, null, null, null, null, expectedField, expectedDirection, EMAIL);
     }
 
     @ParameterizedTest
     @MethodSource("validSearchQueries")
     void searchesWithNormalizedQuery(String input, String expectedQuery) throws Exception {
-        when(ticketService.listTickets(0, 20, null, null, expectedQuery,
+        when(ticketService.listTickets(0, 20, null, null, null, expectedQuery,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL))
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
 
@@ -606,7 +649,7 @@ class TicketControllerTests {
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(20));
 
-        verify(ticketService).listTickets(0, 20, null, null, expectedQuery,
+        verify(ticketService).listTickets(0, 20, null, null, null, expectedQuery,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
@@ -621,7 +664,7 @@ class TicketControllerTests {
     @Test
     void listsTicketsWithSearchFiltersSortingAndCustomPagination() throws Exception {
         Ticket ticket = persistedTicket("Login failure", TicketStatus.OPEN);
-        when(ticketService.listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, "login",
+        when(ticketService.listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, null, "login",
                 TicketSortField.UPDATED_AT, TicketSortDirection.ASC, EMAIL))
                 .thenReturn(new PageImpl<>(List.of(ticket), PageRequest.of(1, 10), 11));
 
@@ -647,7 +690,7 @@ class TicketControllerTests {
                         }
                         """.formatted(ticketJson("Login failure", "OPEN")), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, "login",
+        verify(ticketService).listTickets(1, 10, TicketStatus.OPEN, TicketPriority.HIGH, null, "login",
                 TicketSortField.UPDATED_AT, TicketSortDirection.ASC, EMAIL);
     }
 
@@ -702,6 +745,14 @@ class TicketControllerTests {
 
     static Stream<Arguments> invalidFilters() {
         return Stream.of(
+                Arguments.of("invalid category", "category", new String[]{"INVALID"}),
+                Arguments.of("lowercase category", "category", new String[]{"incident"}),
+                Arguments.of("comma-separated categories", "category", new String[]{"INCIDENT,OTHER"}),
+                Arguments.of("multiple categories", "category", new String[]{"INCIDENT", "OTHER"}),
+                Arguments.of("repeated category", "category", new String[]{"INCIDENT", "INCIDENT"}),
+                Arguments.of("array-style category", "category[]", new String[]{"INCIDENT"}),
+                Arguments.of("empty category", "category", new String[]{""}),
+                Arguments.of("blank category", "category", new String[]{" "}),
                 Arguments.of("invalid status", "status", new String[]{"INVALID"}),
                 Arguments.of("invalid priority", "priority", new String[]{"CRITICAL"}),
                 Arguments.of("lowercase status", "status", new String[]{"open"}),
@@ -721,6 +772,7 @@ class TicketControllerTests {
 
     static Stream<Arguments> invalidSortingParameters() {
         return Stream.of(
+                Arguments.of("category sort", "sortBy", new String[]{"category"}),
                 Arguments.of("unknown sort field", "sortBy", new String[]{"unknown"}),
                 Arguments.of("priority sort", "sortBy", new String[]{"priority"}),
                 Arguments.of("status sort", "sortBy", new String[]{"status"}),
@@ -764,7 +816,7 @@ class TicketControllerTests {
     void returnsEmptyPageWithMetadata(int page, int size, long totalElements, int totalPages, boolean first)
             throws Exception {
         Page<Ticket> tickets = new PageImpl<>(List.of(), PageRequest.of(page, size), totalElements);
-        when(ticketService.listTickets(page, size, null, null, null,
+        when(ticketService.listTickets(page, size, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL)).thenReturn(tickets);
 
         mockMvc.perform(get("/api/tickets").principal(() -> EMAIL)
@@ -784,7 +836,7 @@ class TicketControllerTests {
                         }
                         """.formatted(page, size, totalElements, totalPages, first), JsonCompareMode.STRICT));
 
-        verify(ticketService).listTickets(page, size, null, null, null,
+        verify(ticketService).listTickets(page, size, null, null, null, null,
                 TicketSortField.CREATED_AT, TicketSortDirection.DESC, EMAIL);
     }
 
@@ -858,8 +910,12 @@ class TicketControllerTests {
     }
 
     private static Ticket persistedTicket(String title, TicketStatus status, TicketPriority priority) {
+        return persistedTicket(title, status, priority, TicketCategory.INCIDENT);
+    }
+
+    private static Ticket persistedTicket(String title, TicketStatus status, TicketPriority priority, TicketCategory category) {
         UserAccount requester = new UserAccount(EMAIL, "Alice", "{bcrypt}encoded-test-value", UserRole.REQUESTER);
-        Ticket ticket = new Ticket(title, "The office printer is unreachable.", status, priority, requester);
+        Ticket ticket = new Ticket(title, "The office printer is unreachable.", status, priority, category, requester);
         ReflectionTestUtils.setField(ticket, "id", 42L);
         ReflectionTestUtils.setField(ticket, "createdAt", Instant.parse("2026-09-23T10:00:00Z"));
         ReflectionTestUtils.setField(ticket, "updatedAt", Instant.parse("2026-09-23T10:05:00Z"));
@@ -877,7 +933,7 @@ class TicketControllerTests {
                   "title":"%s",
                   "description":"The office printer is unreachable.",
                   "status":"%s",
-                  "priority":"%s",
+                  "priority":"%s","category":"INCIDENT",
                   "createdAt":"2026-09-23T10:00:00Z",
                   "updatedAt":"2026-09-23T10:05:00Z",
                   "assignee":null

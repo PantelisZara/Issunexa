@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.history.api;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
 import io.github.panteliszara.issunexa.ticket.history.TicketHistoryEntry;
@@ -124,7 +125,7 @@ class TicketHistoryControllerTests {
         UserAccount assignee = new UserAccount("assignee@example.com", "Assignee", "other-secret", UserRole.ADMIN);
         ReflectionTestUtils.setField(actor, "id", 3L);
         ReflectionTestUtils.setField(assignee, "id", 4L);
-        Ticket ticket = new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, actor);
+        Ticket ticket = new Ticket("Printer", "Offline", TicketStatus.OPEN, TicketPriority.HIGH, TicketCategory.INCIDENT, actor);
         TicketHistoryEntry entry = switch (type) {
             case TICKET_CREATED -> TicketHistoryEntry.ticketCreated(ticket, actor);
             case STATUS_CHANGED -> TicketHistoryEntry.statusChanged(ticket, actor, TicketStatus.OPEN, TicketStatus.IN_PROGRESS);

@@ -1,6 +1,7 @@
 package io.github.panteliszara.issunexa.ticket.api;
 
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketService;
 import io.github.panteliszara.issunexa.ticket.TicketSortDirection;
@@ -66,6 +67,7 @@ public class TicketController {
     @PostMapping
     @Operation(summary = "Create a Ticket", description = "Any authenticated account may create a Ticket "
             + "with initial status OPEN. The requester is derived from the authenticated account. "
+            + "Category is required and immutable: INCIDENT, SERVICE_REQUEST, ACCESS_REQUEST or OTHER. "
             + "Successful creation records lifecycle history in the same transaction.")
     @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
             description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
@@ -80,7 +82,7 @@ public class TicketController {
     public ResponseEntity<TicketResponse> createTicket(@Valid @RequestBody CreateTicketRequest request,
             Principal principal) {
         Ticket ticket = ticketService.createTicket(request.title(), request.description(), request.priority(),
-                principal.getName());
+                request.category(), principal.getName());
         URI location = ServletUriComponentsBuilder.fromCurrentRequestUri()
                 .path("/{id}")
                 .buildAndExpand(ticket.getId())
@@ -164,7 +166,7 @@ public class TicketController {
     @GetMapping
     @Operation(summary = "List Tickets", description = "REQUESTER receives only their own Tickets. "
             + "AGENT and ADMIN may view all Tickets, including historical Tickets without a requester. "
-            + "Status, priority and text search criteria combine using AND. "
+            + "Status, priority, category and text search criteria combine using AND. "
             + "Filtering precedes pagination. Sorting uses ID as a secondary key in the selected direction.")
     @ApiResponse(responseCode = "200", description = "Matching Tickets with page metadata.",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -178,6 +180,8 @@ public class TicketController {
             @RequestParam(name = "status", required = false) TicketStatus status,
             @Parameter(description = "Optional, case-sensitive priority filter.")
             @RequestParam(name = "priority", required = false) TicketPriority priority,
+            @Parameter(description = "Optional, case-sensitive category filter.")
+            @RequestParam(name = "category", required = false) TicketCategory category,
             @Parameter(description = "Case-insensitive substring search in title OR description. "
                     + "Leading and trailing whitespace is trimmed. A supplied value must be nonblank "
                     + "and at most 100 characters before trimming.")
@@ -192,11 +196,11 @@ public class TicketController {
             @RequestParam(name = "direction", defaultValue = "desc") TicketSortDirection direction,
             Principal principal) {
         String query = q == null ? null : q.strip();
-        return TicketPageResponse.from(ticketService.listTickets(page, size, status, priority, query, sortBy, direction,
+        return TicketPageResponse.from(ticketService.listTickets(page, size, status, priority, category, query, sortBy, direction,
                 principal.getName()));
     }
 
-    @InitBinder({"status", "priority", "sortBy", "direction", "q"})
+    @InitBinder({"status", "priority", "category", "sortBy", "direction", "q"})
     void validateSingleListingParameter(WebDataBinder binder, NativeWebRequest request)
             throws ServletRequestBindingException {
         String parameter = binder.getObjectName();
