@@ -65,7 +65,8 @@ public class TicketController {
 
     @PostMapping
     @Operation(summary = "Create a Ticket", description = "Any authenticated account may create a Ticket "
-            + "with initial status OPEN. The requester is derived from the authenticated account.")
+            + "with initial status OPEN. The requester is derived from the authenticated account. "
+            + "Successful creation records lifecycle history in the same transaction.")
     @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
             description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
     @ApiResponse(responseCode = "403", description = "Missing or invalid CSRF token.",
@@ -111,7 +112,8 @@ public class TicketController {
     @Operation(summary = "Change Ticket status", description = "Requires AGENT or ADMIN. "
             + "Allowed transitions: OPEN → IN_PROGRESS; "
             + "IN_PROGRESS → RESOLVED; RESOLVED → IN_PROGRESS; RESOLVED → CLOSED. "
-            + "CLOSED is terminal. All other transitions, including the current status, are rejected.")
+            + "CLOSED is terminal. All other transitions, including the current status, are rejected. "
+            + "Successful transitions record the authenticated actor and before/after statuses in lifecycle history.")
     @ApiResponses({
             @ApiResponse(responseCode = "403", description = "Insufficient role, or missing or invalid CSRF token.",
                     content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
@@ -128,14 +130,15 @@ public class TicketController {
                             schema = @Schema(implementation = ProblemDetail.class)))
     })
     public TicketResponse changeStatus(@Parameter(description = "Ticket ID.", example = "42") @PathVariable Long id,
-            @Valid @RequestBody UpdateTicketStatusRequest request) {
-        return TicketResponse.from(ticketService.changeStatus(id, request.status()));
+            @Valid @RequestBody UpdateTicketStatusRequest request, Principal principal) {
+        return TicketResponse.from(ticketService.changeStatus(id, request.status(), principal.getName()));
     }
 
     @PostMapping("/{id}/claim")
     @Operation(summary = "Claim a Ticket", description = "AGENT and ADMIN may claim an unassigned Ticket. "
             + "The authenticated staff account becomes the assignee; no assignee input or request body is accepted. "
-            + "Claiming preserves requester and status. Already-assigned Tickets cannot be claimed again.")
+            + "Claiming preserves requester and status. Already-assigned Tickets cannot be claimed again. "
+            + "Successful claims record lifecycle history in the same transaction.")
     @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
             description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
     @ApiResponses({

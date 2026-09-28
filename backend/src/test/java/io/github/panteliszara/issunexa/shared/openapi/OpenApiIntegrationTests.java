@@ -42,7 +42,7 @@ class OpenApiIntegrationTests {
         DocumentContext api = apiDocs();
         Map<String, Object> paths = api.read("$.paths");
         assertThat(paths).containsOnlyKeys("/api/tickets", "/api/tickets/{id}", "/api/tickets/{id}/status",
-                "/api/tickets/{id}/claim", "/api/tickets/{ticketId}/comments",
+                "/api/tickets/{id}/claim", "/api/tickets/{ticketId}/comments", "/api/tickets/{ticketId}/history",
                 "/api/auth/csrf", "/api/auth/login", "/api/auth/logout");
         Map<String, Object> collection = api.read("$.paths['/api/tickets']");
         assertThat(collection).containsOnlyKeys("get", "post");
@@ -64,6 +64,57 @@ class OpenApiIntegrationTests {
                 "400", "401", "403", "404");
         assertResponses(api, "$.paths['/api/tickets/{ticketId}/comments'].get", "200", "TicketCommentPageResponse",
                 "400", "401", "404");
+        Map<String, Object> history = api.read("$.paths['/api/tickets/{ticketId}/history']");
+        assertThat(history).containsOnlyKeys("get");
+        assertResponses(api, "$.paths['/api/tickets/{ticketId}/history'].get", "200", "TicketHistoryPageResponse",
+                "400", "401", "404");
+    }
+
+    @Test
+    void documentsSafeStructuredHistoryWithNullableFieldsAndFixedNewestFirstPagination() throws Exception {
+        DocumentContext api = apiDocs();
+        String operation = "$.paths['/api/tickets/{ticketId}/history'].get";
+        assertThat(api.read(operation + ".description", String.class))
+                .contains("REQUESTER", "owned Ticket history", "AGENT and ADMIN", "historical Tickets",
+                        "createdAt DESC, then id DESC", "not backfilled", "Comments remain separate");
+        List<Map<String, Object>> parameters = api.read(operation + ".parameters");
+        assertThat(parameters).extracting(parameter -> parameter.get("name")).containsExactlyInAnyOrder("ticketId", "page", "size");
+        List<Map<String, Object>> pageParameter = api.read(operation + ".parameters[?(@.name == 'page')].schema");
+        assertThat(pageParameter).singleElement().satisfies(schema -> assertThat(schema).containsEntry("default", 0).containsEntry("minimum", 0));
+        List<Map<String, Object>> sizeParameter = api.read(operation + ".parameters[?(@.name == 'size')].schema");
+        assertThat(sizeParameter).singleElement().satisfies(schema -> assertThat(schema)
+                .containsEntry("default", 20).containsEntry("minimum", 1).containsEntry("maximum", 100));
+        Map<String, Object> entry = api.read("$.components.schemas.TicketHistoryResponse.properties");
+        assertThat(entry).containsOnlyKeys("id", "type", "actor", "previousStatus", "newStatus", "assignee", "createdAt");
+        List<String> types = api.read("$.components.schemas.TicketHistoryResponse.properties.type.enum");
+        assertThat(types).containsExactlyInAnyOrder("TICKET_CREATED", "STATUS_CHANGED", "ASSIGNEE_CLAIMED");
+        Map<String, Object> actor = api.read("$.components.schemas.TicketHistoryActorResponse.properties");
+        assertThat(actor).containsOnlyKeys("id", "displayName");
+        Map<String, Object> ticketStatus = api.read("$.components.schemas.TicketResponse.properties.status");
+        assertThat(allowsNull(ticketStatus)).isFalse();
+        List<String> ticketStatuses = api.read("$.components.schemas.TicketResponse.properties.status.enum");
+        assertThat(ticketStatuses).containsExactlyInAnyOrder("OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED");
+        assertThat(api.read("$.components.schemas.TicketHistoryResponse.properties.actor['$ref']", String.class))
+                .isEqualTo("#/components/schemas/TicketHistoryActorResponse");
+        for (String field : List.of("previousStatus", "newStatus")) {
+            Map<String, Object> property = api.read("$.components.schemas.TicketHistoryResponse.properties." + field);
+            assertThat(allowsNull(property)).as(field + " accepts null").isTrue();
+            List<Object> values = api.read("$.components.schemas.TicketHistoryResponse.properties." + field + ".enum");
+            if (api.read("$.openapi", String.class).startsWith("3.1")) {
+                assertThat(values).as(field + " enum permits only Ticket statuses and null")
+                        .containsExactlyInAnyOrder("OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED", null);
+            } else {
+                assertThat(values).containsExactlyInAnyOrder("OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED");
+            }
+        }
+        Map<String, Object> assignee = api.read("$.components.schemas.TicketHistoryResponse.properties.assignee");
+        Map<String, Object> assigneeSchema = api.read("$.components.schemas.TicketAssigneeResponse");
+        assertThat(assignee.toString()).contains("TicketAssigneeResponse");
+        assertThat(allowsNull(assignee) || allowsNull(assigneeSchema)).isTrue();
+        Map<String, Object> page = api.read("$.components.schemas.TicketHistoryPageResponse.properties");
+        assertThat(page).containsOnlyKeys("content", "page", "size", "totalElements", "totalPages", "first", "last");
+        assertThat(api.read("$.components.schemas.TicketHistoryPageResponse.properties.content.items['$ref']", String.class))
+                .isEqualTo("#/components/schemas/TicketHistoryResponse");
     }
 
     @Test
@@ -198,6 +249,7 @@ class OpenApiIntegrationTests {
                 "$.paths['/api/tickets/{id}'].get", "$.paths['/api/tickets/{id}/status'].patch",
                 "$.paths['/api/tickets/{id}/claim'].post",
                 "$.paths['/api/tickets/{ticketId}/comments'].get", "$.paths['/api/tickets/{ticketId}/comments'].post",
+                "$.paths['/api/tickets/{ticketId}/history'].get",
                 "$.paths['/api/auth/logout'].post")) {
             List<Map<String, Object>> security = api.read(operation + ".security");
             assertThat(security).containsExactly(Map.of("sessionAuth", List.of()));

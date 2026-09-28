@@ -95,6 +95,7 @@ class TicketAssignmentIntegrationTests {
 
     @BeforeEach
     void createCommittedFixture() {
+        jdbc.update("DELETE FROM ticket_history_entries");
         jdbc.update("DELETE FROM tickets");
         jdbc.update("DELETE FROM users");
         requester = userAccountService.createUser("requester@example.com", "Requester", PASSWORD, UserRole.REQUESTER);

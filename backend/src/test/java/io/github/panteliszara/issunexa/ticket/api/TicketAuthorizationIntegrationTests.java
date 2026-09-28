@@ -228,11 +228,11 @@ class TicketAuthorizationIntegrationTests {
         try {
             SecurityContextHolder.setContext(context);
             if (role == UserRole.REQUESTER) {
-                assertThatThrownBy(() -> ticketService.changeStatus(firstOwnedId, TicketStatus.IN_PROGRESS))
+                assertThatThrownBy(() -> ticketService.changeStatus(firstOwnedId, TicketStatus.IN_PROGRESS, context.getAuthentication().getName()))
                         .isInstanceOf(AccessDeniedException.class);
                 verifyNoInteractions(ticketRepository);
             } else {
-                assertThat(ticketService.changeStatus(firstOwnedId, TicketStatus.IN_PROGRESS).getStatus())
+                assertThat(ticketService.changeStatus(firstOwnedId, TicketStatus.IN_PROGRESS, context.getAuthentication().getName()).getStatus())
                         .isEqualTo(TicketStatus.IN_PROGRESS);
                 verify(ticketRepository).findById(firstOwnedId);
             }
@@ -288,7 +288,7 @@ class TicketAuthorizationIntegrationTests {
     void flywayCreatesOnlyTheRequesterBtreeIndexInV5() {
         assertThat(jdbcTemplate.queryForList("""
                 SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank
-                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7");
+                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'tickets'
                 """, String.class)).containsExactlyInAnyOrder("pk_tickets", "idx_tickets_requester_id");

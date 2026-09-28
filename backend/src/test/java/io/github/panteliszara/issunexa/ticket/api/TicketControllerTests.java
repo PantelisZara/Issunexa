@@ -141,13 +141,13 @@ class TicketControllerTests {
     @MethodSource("optimisticFailures")
     void optimisticFailureReturnsSafeConflictForClaimAndStatus(RuntimeException failure) throws Exception {
         when(ticketService.claimTicket(42L, EMAIL)).thenThrow(failure);
-        when(ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS)).thenThrow(failure);
+        when(ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS, EMAIL)).thenThrow(failure);
 
         for (String operation : List.of("claim", "status")) {
             String path = "/api/tickets/42/" + operation;
             MockHttpServletRequestBuilder request = operation.equals("claim")
                     ? post(path).principal(() -> EMAIL)
-                    : patch(path).contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"IN_PROGRESS\"}");
+                    : patch(path).principal(() -> EMAIL).contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"IN_PROGRESS\"}");
             mockMvc.perform(request)
                     .andExpect(status().isConflict())
                     .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -202,10 +202,10 @@ class TicketControllerTests {
 
     @Test
     void changesStatusThroughServiceAndReturnsTicketResponse() throws Exception {
-        when(ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS))
+        when(ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS, EMAIL))
                 .thenReturn(persistedTicket("Printer offline", TicketStatus.IN_PROGRESS));
 
-        mockMvc.perform(patch("/api/tickets/42/status")
+        mockMvc.perform(patch("/api/tickets/42/status").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"status":"IN_PROGRESS"}
@@ -214,14 +214,29 @@ class TicketControllerTests {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json(ticketJson("Printer offline", "IN_PROGRESS"), JsonCompareMode.STRICT));
 
-        verify(ticketService).changeStatus(42L, TicketStatus.IN_PROGRESS);
+        verify(ticketService).changeStatus(42L, TicketStatus.IN_PROGRESS, EMAIL);
+    }
+
+    @Test
+    void statusActorComesOnlyFromTrustedPrincipal() throws Exception {
+        when(ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS, EMAIL))
+                .thenReturn(persistedTicket("Printer offline", TicketStatus.IN_PROGRESS));
+
+        mockMvc.perform(patch("/api/tickets/42/status").principal(() -> EMAIL)
+                        .param("actorEmail", "other@example.com").header("X-Actor-Email", "other@example.com")
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"status":"IN_PROGRESS","actorId":99,"actorEmail":"other@example.com","role":"ADMIN"}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(ticketService).changeStatus(42L, TicketStatus.IN_PROGRESS, EMAIL);
     }
 
     @Test
     void returnsExistingNotFoundProblemForStatusChange() throws Exception {
-        when(ticketService.changeStatus(99L, TicketStatus.IN_PROGRESS)).thenThrow(new TicketNotFoundException(99L));
+        when(ticketService.changeStatus(99L, TicketStatus.IN_PROGRESS, EMAIL)).thenThrow(new TicketNotFoundException(99L));
 
-        mockMvc.perform(patch("/api/tickets/99/status")
+        mockMvc.perform(patch("/api/tickets/99/status").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"status":"IN_PROGRESS"}
@@ -238,15 +253,15 @@ class TicketControllerTests {
                         }
                         """, JsonCompareMode.STRICT));
 
-        verify(ticketService).changeStatus(99L, TicketStatus.IN_PROGRESS);
+        verify(ticketService).changeStatus(99L, TicketStatus.IN_PROGRESS, EMAIL);
     }
 
     @Test
     void returnsSafeConflictProblemForInvalidStatusTransition() throws Exception {
-        when(ticketService.changeStatus(42L, TicketStatus.CLOSED))
+        when(ticketService.changeStatus(42L, TicketStatus.CLOSED, EMAIL))
                 .thenThrow(new InvalidTicketStatusTransitionException(42L, TicketStatus.OPEN, TicketStatus.CLOSED));
 
-        mockMvc.perform(patch("/api/tickets/42/status")
+        mockMvc.perform(patch("/api/tickets/42/status").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"status":"CLOSED"}
@@ -263,13 +278,13 @@ class TicketControllerTests {
                         }
                         """, JsonCompareMode.STRICT));
 
-        verify(ticketService).changeStatus(42L, TicketStatus.CLOSED);
+        verify(ticketService).changeStatus(42L, TicketStatus.CLOSED, EMAIL);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"status\":null}"})
     void rejectsMissingOrNullStatusBeforeCallingService(String request) throws Exception {
-        mockMvc.perform(patch("/api/tickets/42/status")
+        mockMvc.perform(patch("/api/tickets/42/status").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request))
                 .andExpect(status().isBadRequest())
@@ -291,7 +306,7 @@ class TicketControllerTests {
     @ParameterizedTest
     @ValueSource(strings = {"{\"status\":\"WAITING_FOR_MAGIC\"}", "{\"status\":"})
     void returnsSafeProblemForUnreadableStatusBody(String request) throws Exception {
-        mockMvc.perform(patch("/api/tickets/42/status")
+        mockMvc.perform(patch("/api/tickets/42/status").principal(() -> EMAIL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request))
                 .andExpect(status().isBadRequest())

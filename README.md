@@ -80,6 +80,7 @@ When the application is running locally, OpenAPI JSON is available at `/v3/api-d
 | POST | `/api/tickets/{id}/claim` | `200 OK` and the updated Ticket JSON |
 | POST | `/api/tickets/{ticketId}/comments` | `201 Created` and Comment JSON |
 | GET | `/api/tickets/{ticketId}/comments` | `200 OK`, Comment content and page metadata |
+| GET | `/api/tickets/{ticketId}/history` | `200 OK`, lifecycle history and page metadata |
 
 Creation accepts `title`, `description` and `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`). Title and description must not be blank; title is limited to 255 characters and priority is required. New Tickets start as `OPEN`.
 
@@ -109,6 +110,14 @@ Comments are append-only in the current version. Authenticated users can create 
 Comment creation accepts only `{"body":"Comment text"}`: nonblank plain text of at most 4000 characters before trimming. Outer whitespace is stripped; internal whitespace and newlines are preserved. The authenticated account is always the author. Responses contain `id`, `body`, `createdAt` and an `author` summary with only `id` and `displayName`.
 
 Comment listing supports zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`), ordered by `createdAt ASC`, then `id ASC`. It returns `content`, `page`, `size`, `totalElements`, `totalPages`, `first` and `last`. There are no comment editing, deletion, search or sorting options.
+
+## Ticket lifecycle history
+
+Successful Ticket creation, status changes and self-claims record `TICKET_CREATED`, `STATUS_CHANGED` and `ASSIGNEE_CLAIMED` entries in the same transaction as the Ticket operation. Entries contain structured event data and the authenticated actor; actor and assignee summaries expose only `id` and `displayName`. Failed operations leave no history entry. History is append-only, with no manual creation, edit or delete API. Comments remain a separate resource and do not create lifecycle entries.
+
+`GET /api/tickets/{ticketId}/history` follows normal Ticket visibility: REQUESTER can view owned Tickets only; AGENT/ADMIN can view all Tickets, including historical Tickets without a requester. Hidden and missing Tickets return the same `404`. History is ordered newest-first by `createdAt DESC`, then `id DESC`, with zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`). There are no history sort, filter or search controls.
+
+History recording begins with V8. Earlier activity is not backfilled: existing Tickets may have incomplete history or no creation entry. This is lifecycle history, not a complete record of activity before V8.
 
 ## Runtime database configuration
 

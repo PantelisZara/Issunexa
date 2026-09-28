@@ -180,7 +180,7 @@ class TicketRepositoryTests {
         Instant updatedAt = existing.getUpdatedAt();
         assertThat(entityManager.contains(existing)).isTrue();
 
-        Ticket result = ticketService.changeStatus(existing.getId(), TicketStatus.IN_PROGRESS);
+        Ticket result = ticketService.changeStatus(existing.getId(), TicketStatus.IN_PROGRESS, requester.getEmail());
 
         assertThat(result).isSameAs(existing);
         ticketRepository.flush();

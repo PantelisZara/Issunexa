@@ -74,6 +74,7 @@ class TicketCommentIntegrationTests {
     @BeforeEach
     void createCommittedFixture() {
         jdbc.update("DELETE FROM ticket_comments");
+        jdbc.update("DELETE FROM ticket_history_entries");
         jdbc.update("DELETE FROM tickets");
         jdbc.update("DELETE FROM users");
         requester = userAccountService.createUser("alice@example.com", "Alice", PASSWORD, UserRole.REQUESTER);

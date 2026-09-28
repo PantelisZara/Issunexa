@@ -1,5 +1,7 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.ticket.history.TicketHistoryEntry;
+import io.github.panteliszara.issunexa.ticket.history.TicketHistoryRepository;
 import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserAccountRepository;
 import org.springframework.data.domain.Page;
@@ -17,17 +19,21 @@ public class TicketService {
 
     private final TicketRepository ticketRepository;
     private final UserAccountRepository userAccountRepository;
+    private final TicketHistoryRepository ticketHistoryRepository;
 
-    public TicketService(TicketRepository ticketRepository, UserAccountRepository userAccountRepository) {
+    public TicketService(TicketRepository ticketRepository, UserAccountRepository userAccountRepository,
+            TicketHistoryRepository ticketHistoryRepository) {
         this.ticketRepository = ticketRepository;
         this.userAccountRepository = userAccountRepository;
+        this.ticketHistoryRepository = ticketHistoryRepository;
     }
 
     @Transactional
     public Ticket createTicket(String title, String description, TicketPriority priority, String requesterEmail) {
         UserAccount requester = resolveCurrentAccount(requesterEmail);
-        Ticket ticket = new Ticket(title, description, TicketStatus.OPEN, priority, requester);
-        return ticketRepository.save(ticket);
+        Ticket ticket = ticketRepository.save(new Ticket(title, description, TicketStatus.OPEN, priority, requester));
+        ticketHistoryRepository.save(TicketHistoryEntry.ticketCreated(ticket, requester));
+        return ticket;
     }
 
     @Transactional(readOnly = true)
@@ -48,15 +54,19 @@ public class TicketService {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
         ticket.claim(actor);
+        ticketHistoryRepository.save(TicketHistoryEntry.assigneeClaimed(ticket, actor, ticket.getAssignee()));
         return ticket;
     }
 
     @Transactional
     @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
-    public Ticket changeStatus(Long id, TicketStatus targetStatus) {
+    public Ticket changeStatus(Long id, TicketStatus targetStatus, String actorEmail) {
+        UserAccount actor = resolveCurrentAccount(actorEmail);
         Ticket ticket = ticketRepository.findById(id)
                 .orElseThrow(() -> new TicketNotFoundException(id));
+        TicketStatus previousStatus = ticket.getStatus();
         ticket.changeStatus(targetStatus);
+        ticketHistoryRepository.save(TicketHistoryEntry.statusChanged(ticket, actor, previousStatus, ticket.getStatus()));
         return ticket;
     }
 

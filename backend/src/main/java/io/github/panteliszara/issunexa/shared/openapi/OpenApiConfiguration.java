@@ -9,6 +9,8 @@ import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.List;
+
 @Configuration(proxyBeanMethods = false)
 public class OpenApiConfiguration {
 
@@ -41,6 +43,12 @@ public class OpenApiConfiguration {
             createTicketRequest.getProperties().get("title").setMinLength(1);
             Schema<?> createCommentRequest = openApi.getComponents().getSchemas().get("CreateTicketCommentRequest");
             createCommentRequest.getProperties().get("body").setMinLength(1);
+
+            // In OpenAPI 3.1, nullable enum fields must also permit null in their enum values.
+            Schema<?> historyResponse = openApi.getComponents().getSchemas().get("TicketHistoryResponse");
+            for (String field : List.of("previousStatus", "newStatus")) {
+                historyResponse.getProperties().get(field).addEnumItemObject(null);
+            }
 
             openApi.getPaths().get("/api/tickets").getGet().getParameters().stream()
                     .filter(parameter -> parameter.getName().equals("q"))

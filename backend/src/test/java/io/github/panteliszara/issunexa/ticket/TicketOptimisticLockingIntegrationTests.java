@@ -54,6 +54,7 @@ class TicketOptimisticLockingIntegrationTests {
 
     @BeforeEach
     void createCommittedFixture() {
+        jdbc.update("DELETE FROM ticket_history_entries");
         jdbc.update("DELETE FROM tickets");
         jdbc.update("DELETE FROM users");
         agent = userAccountService.createUser("agent@example.com", "Agent", "locking test password", UserRole.AGENT);
@@ -79,7 +80,7 @@ class TicketOptimisticLockingIntegrationTests {
         assertThat(storedState()).containsEntry("version", 1L).containsEntry("assignee_id", agent.getId())
                 .containsEntry("status", "OPEN").containsEntry("requester_id", agent.getId());
 
-        Ticket progressed = ticketService.changeStatus(ticketId, TicketStatus.IN_PROGRESS);
+        Ticket progressed = ticketService.changeStatus(ticketId, TicketStatus.IN_PROGRESS, agent.getEmail());
 
         assertThat(progressed.getVersion()).isEqualTo(2);
         assertThat(storedState()).containsEntry("version", 2L).containsEntry("assignee_id", agent.getId())

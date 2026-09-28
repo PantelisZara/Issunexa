@@ -1,5 +1,8 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.ticket.history.TicketHistoryEntry;
+import io.github.panteliszara.issunexa.ticket.history.TicketHistoryRepository;
+import io.github.panteliszara.issunexa.ticket.history.TicketHistoryType;
 import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserAccountRepository;
 import io.github.panteliszara.issunexa.user.UserRole;
@@ -29,6 +32,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -45,6 +49,9 @@ class TicketServiceTests {
     @Mock
     private UserAccountRepository userAccountRepository;
 
+    @Mock
+    private TicketHistoryRepository historyRepository;
+
     private final UserAccount requester = new UserAccount("alice@example.com", "Alice",
             "{bcrypt}encoded-test-value", UserRole.REQUESTER);
 
@@ -52,7 +59,7 @@ class TicketServiceTests {
 
     @BeforeEach
     void setUp() {
-        ticketService = new TicketService(ticketRepository, userAccountRepository);
+        ticketService = new TicketService(ticketRepository, userAccountRepository, historyRepository);
         ReflectionTestUtils.setField(requester, "id", 7L);
     }
 
@@ -62,6 +69,7 @@ class TicketServiceTests {
         String description = "The office printer is unreachable.\nIt shows a network error.";
         TicketPriority priority = TicketPriority.HIGH;
         Ticket persistedTicket = new Ticket(title, description, TicketStatus.OPEN, priority, requester);
+        ReflectionTestUtils.setField(persistedTicket, "id", 42L);
         when(userAccountRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(requester));
         when(ticketRepository.save(any(Ticket.class))).thenReturn(persistedTicket);
 
@@ -77,6 +85,14 @@ class TicketServiceTests {
         assertThat(submittedTicket.getStatus()).isEqualTo(TicketStatus.OPEN);
         assertThat(submittedTicket.getRequester()).isSameAs(requester);
         assertThat(result).isSameAs(persistedTicket);
+        var calls = inOrder(ticketRepository, historyRepository);
+        calls.verify(ticketRepository).save(any(Ticket.class));
+        ArgumentCaptor<TicketHistoryEntry> history = ArgumentCaptor.forClass(TicketHistoryEntry.class);
+        calls.verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getType()).isEqualTo(TicketHistoryType.TICKET_CREATED);
+        assertThat(history.getValue().getTicket()).isSameAs(persistedTicket);
+        assertThat(history.getValue().getActor()).isSameAs(requester);
+        assertThat(history.getValue().getNewStatus()).isEqualTo(TicketStatus.OPEN);
         verifyNoMoreInteractions(userAccountRepository, ticketRepository);
     }
 
@@ -90,7 +106,7 @@ class TicketServiceTests {
                 .hasMessage("Authenticated user account could not be resolved.");
         verify(userAccountRepository).findByEmail("missing@example.com");
         verifyNoMoreInteractions(userAccountRepository);
-        verifyNoInteractions(ticketRepository);
+        verifyNoInteractions(ticketRepository, historyRepository);
     }
 
     @ParameterizedTest
@@ -196,6 +212,12 @@ class TicketServiceTests {
         assertThat(ticketService.claimTicket(42L, " \tAlice@Example.COM\n ")).isSameAs(ticket);
 
         assertThat(ticket.getAssignee()).isSameAs(actor);
+        ArgumentCaptor<TicketHistoryEntry> history = ArgumentCaptor.forClass(TicketHistoryEntry.class);
+        verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getType()).isEqualTo(TicketHistoryType.ASSIGNEE_CLAIMED);
+        assertThat(history.getValue().getTicket()).isSameAs(ticket);
+        assertThat(history.getValue().getActor()).isSameAs(actor);
+        assertThat(history.getValue().getAssignee()).isSameAs(actor);
         verify(userAccountRepository).findByEmail(EMAIL);
         verify(ticketRepository).findById(42L);
         verifyNoMoreInteractions(userAccountRepository, ticketRepository);
@@ -208,6 +230,7 @@ class TicketServiceTests {
 
         assertThatThrownBy(() -> ticketService.claimTicket(99L, EMAIL))
                 .isInstanceOf(TicketNotFoundException.class).hasMessage("Ticket with ID 99 was not found");
+        verifyNoInteractions(historyRepository);
         verify(userAccountRepository).findByEmail(EMAIL);
         verify(ticketRepository).findById(99L);
         verifyNoMoreInteractions(userAccountRepository, ticketRepository);
@@ -224,6 +247,7 @@ class TicketServiceTests {
         assertThatThrownBy(() -> ticketService.claimTicket(42L, EMAIL))
                 .isInstanceOf(TicketAlreadyAssignedException.class);
         assertThat(ticket.getAssignee()).isSameAs(original);
+        verifyNoInteractions(historyRepository);
         verify(userAccountRepository).findByEmail(EMAIL);
         verify(ticketRepository).findById(42L);
         verifyNoMoreInteractions(userAccountRepository, ticketRepository);
@@ -231,38 +255,51 @@ class TicketServiceTests {
 
     @Test
     void changesStatusAndReturnsLoadedTicketWithoutSavingAgain() {
+        UserAccount actor = new UserAccount(EMAIL, "Agent", "test-hash", UserRole.AGENT);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(actor));
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
                 TicketStatus.OPEN, TicketPriority.HIGH, requester);
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
 
-        Ticket result = ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS);
+        Ticket result = ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS, EMAIL);
 
         assertThat(result).isSameAs(ticket);
         assertThat(ticket.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+        ArgumentCaptor<TicketHistoryEntry> history = ArgumentCaptor.forClass(TicketHistoryEntry.class);
+        verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getType()).isEqualTo(TicketHistoryType.STATUS_CHANGED);
+        assertThat(history.getValue().getTicket()).isSameAs(ticket);
+        assertThat(history.getValue().getActor()).isSameAs(actor);
+        assertThat(history.getValue().getPreviousStatus()).isEqualTo(TicketStatus.OPEN);
+        assertThat(history.getValue().getNewStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
         verify(ticketRepository).findById(42L);
         verifyNoMoreInteractions(ticketRepository);
     }
 
     @Test
     void rejectsStatusChangeWhenTicketIsMissing() {
+        stubActor(UserRole.AGENT);
         when(ticketRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> ticketService.changeStatus(99L, TicketStatus.IN_PROGRESS))
+        assertThatThrownBy(() -> ticketService.changeStatus(99L, TicketStatus.IN_PROGRESS, EMAIL))
                 .isInstanceOf(TicketNotFoundException.class)
                 .hasMessageContaining("99");
+        verifyNoInteractions(historyRepository);
         verify(ticketRepository).findById(99L);
         verifyNoMoreInteractions(ticketRepository);
     }
 
     @Test
     void propagatesInvalidStatusTransition() {
+        stubActor(UserRole.AGENT);
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",
                 TicketStatus.OPEN, TicketPriority.HIGH, requester);
         when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
 
-        assertThatThrownBy(() -> ticketService.changeStatus(42L, TicketStatus.CLOSED))
+        assertThatThrownBy(() -> ticketService.changeStatus(42L, TicketStatus.CLOSED, EMAIL))
                 .isInstanceOf(InvalidTicketStatusTransitionException.class);
         assertThat(ticket.getStatus()).isEqualTo(TicketStatus.OPEN);
+        verifyNoInteractions(historyRepository);
         verify(ticketRepository).findById(42L);
         verifyNoMoreInteractions(ticketRepository);
     }
