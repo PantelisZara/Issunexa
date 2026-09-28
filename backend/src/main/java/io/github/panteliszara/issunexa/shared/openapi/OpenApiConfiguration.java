@@ -39,6 +39,8 @@ public class OpenApiConfiguration {
             // @Size's default minimum must not obscure the existing @NotBlank constraint.
             Schema<?> createTicketRequest = openApi.getComponents().getSchemas().get("CreateTicketRequest");
             createTicketRequest.getProperties().get("title").setMinLength(1);
+            Schema<?> createCommentRequest = openApi.getComponents().getSchemas().get("CreateTicketCommentRequest");
+            createCommentRequest.getProperties().get("body").setMinLength(1);
 
             openApi.getPaths().get("/api/tickets").getGet().getParameters().stream()
                     .filter(parameter -> parameter.getName().equals("q"))

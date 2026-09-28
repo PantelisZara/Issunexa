@@ -53,7 +53,7 @@ Authentication uses email, password and an HTTP session cookie. Accounts are pro
 | POST | `/api/auth/login` | Accepts JSON `email` and `password`; returns `204` on success |
 | POST | `/api/auth/logout` | Invalidates the authenticated session; returns `204` on success |
 
-Retain the session cookie when fetching a CSRF token and send the token in the returned header name on login. After successful login, retain the updated session cookie and fetch a fresh CSRF token. Unsafe requests, including Ticket creation, claims, status changes and logout, require that token. Fetch a new token again after logout before another login.
+Retain the session cookie when fetching a CSRF token and send the token in the returned header name on login. After successful login, retain the updated session cookie and fetch a fresh CSRF token. Unsafe requests, including Ticket creation, comments, claims, status changes and logout, require that token. Fetch a new token again after logout before another login.
 
 All Ticket endpoints require an authenticated session. GET requests do not require CSRF. Missing authentication returns `401` Problem Details; missing or invalid CSRF returns `403` Problem Details, including on login. Invalid credentials return the same generic `401` response for unknown emails and incorrect passwords. On unsafe requests, CSRF validation runs before the authentication requirement.
 
@@ -78,6 +78,8 @@ When the application is running locally, OpenAPI JSON is available at `/v3/api-d
 | GET | `/api/tickets` | `200 OK`, Ticket content and page metadata |
 | PATCH | `/api/tickets/{id}/status` | `200 OK` and the updated Ticket JSON |
 | POST | `/api/tickets/{id}/claim` | `200 OK` and the updated Ticket JSON |
+| POST | `/api/tickets/{ticketId}/comments` | `201 Created` and Comment JSON |
+| GET | `/api/tickets/{ticketId}/comments` | `200 OK`, Comment content and page metadata |
 
 Creation accepts `title`, `description` and `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`). Title and description must not be blank; title is limited to 255 characters and priority is required. New Tickets start as `OPEN`.
 
@@ -101,6 +103,12 @@ Sorting accepts `sortBy` (`createdAt`, `updatedAt`, `title`) and `direction` (`a
 Optional `q` performs case-insensitive substring search in title or description. A supplied value must contain non-whitespace text and be at most 100 characters before trimming; surrounding whitespace is trimmed. `%`, `_` and `\` match literally. Search combines with status and priority using AND, for example `GET /api/tickets?q=login&status=OPEN&priority=HIGH`.
 
 Invalid input returns `400`; a missing Ticket returns `404`. Errors use `application/problem+json`, with field details for validation failures.
+
+Comments are append-only in the current version. Authenticated users can create and list comments on Tickets they may access: REQUESTER on owned Tickets only, and AGENT/ADMIN on all Tickets, including historical Tickets without a requester. Hidden and missing Tickets return the same `404`. Closed Tickets can receive comments; adding a comment leaves the Ticket's status, requester, assignee, version and timestamps unchanged.
+
+Comment creation accepts only `{"body":"Comment text"}`: nonblank plain text of at most 4000 characters before trimming. Outer whitespace is stripped; internal whitespace and newlines are preserved. The authenticated account is always the author. Responses contain `id`, `body`, `createdAt` and an `author` summary with only `id` and `displayName`.
+
+Comment listing supports zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`), ordered by `createdAt ASC`, then `id ASC`. It returns `content`, `page`, `size`, `totalElements`, `totalPages`, `first` and `last`. There are no comment editing, deletion, search or sorting options.
 
 ## Runtime database configuration
 

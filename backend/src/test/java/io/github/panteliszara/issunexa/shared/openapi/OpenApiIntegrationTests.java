@@ -42,7 +42,7 @@ class OpenApiIntegrationTests {
         DocumentContext api = apiDocs();
         Map<String, Object> paths = api.read("$.paths");
         assertThat(paths).containsOnlyKeys("/api/tickets", "/api/tickets/{id}", "/api/tickets/{id}/status",
-                "/api/tickets/{id}/claim",
+                "/api/tickets/{id}/claim", "/api/tickets/{ticketId}/comments",
                 "/api/auth/csrf", "/api/auth/login", "/api/auth/logout");
         Map<String, Object> collection = api.read("$.paths['/api/tickets']");
         assertThat(collection).containsOnlyKeys("get", "post");
@@ -58,6 +58,55 @@ class OpenApiIntegrationTests {
                 "400", "401", "403", "404", "409");
         assertResponses(api, "$.paths['/api/tickets/{id}/claim'].post", "200", "TicketResponse",
                 "400", "401", "403", "404", "409");
+        Map<String, Object> comments = api.read("$.paths['/api/tickets/{ticketId}/comments']");
+        assertThat(comments).containsOnlyKeys("get", "post");
+        assertResponses(api, "$.paths['/api/tickets/{ticketId}/comments'].post", "201", "TicketCommentResponse",
+                "400", "401", "403", "404");
+        assertResponses(api, "$.paths['/api/tickets/{ticketId}/comments'].get", "200", "TicketCommentPageResponse",
+                "400", "401", "404");
+    }
+
+    @Test
+    void documentsAppendOnlyCommentsWithSafeAuthorAndFixedPagination() throws Exception {
+        DocumentContext api = apiDocs();
+        String path = "$.paths['/api/tickets/{ticketId}/comments']";
+        assertThat(api.read(path + ".post.description", String.class))
+                .contains("Append-only", "authenticated account", "REQUESTER", "owned Tickets", "AGENT and ADMIN",
+                        "historical Tickets", "every Ticket status");
+        assertThat(api.read(path + ".get.description", String.class))
+                .contains("REQUESTER", "owned Tickets", "AGENT and ADMIN", "createdAt ASC, then id ASC");
+        for (String method : List.of("get", "post")) {
+            assertThat(api.read(path + "." + method + ".responses['404'].description", String.class))
+                    .contains("not found", "outside the requester's visibility");
+        }
+        Map<String, Object> created = api.read(path + ".post.responses['201']");
+        assertThat(created).doesNotContainKey("headers");
+        Map<String, Object> request = api.read("$.components.schemas.CreateTicketCommentRequest.properties");
+        assertThat(request).containsOnlyKeys("body");
+        List<String> required = api.read("$.components.schemas.CreateTicketCommentRequest.required");
+        assertThat(required).containsExactly("body");
+        Map<String, Object> body = api.read("$.components.schemas.CreateTicketCommentRequest.properties.body");
+        assertThat(body).containsEntry("minLength", 1).containsEntry("maxLength", 4000);
+        Map<String, Object> comment = api.read("$.components.schemas.TicketCommentResponse.properties");
+        assertThat(comment).containsOnlyKeys("id", "body", "author", "createdAt");
+        assertThat(api.read("$.components.schemas.TicketCommentResponse.properties.author['$ref']", String.class))
+                .isEqualTo("#/components/schemas/TicketCommentAuthorResponse");
+        Map<String, Object> author = api.read("$.components.schemas.TicketCommentAuthorResponse.properties");
+        assertThat(author).containsOnlyKeys("id", "displayName");
+        Map<String, Object> page = api.read("$.components.schemas.TicketCommentPageResponse.properties");
+        assertThat(page).containsOnlyKeys("content", "page", "size", "totalElements", "totalPages", "first", "last");
+        assertThat(api.read("$.components.schemas.TicketCommentPageResponse.properties.content.items['$ref']", String.class))
+                .isEqualTo("#/components/schemas/TicketCommentResponse");
+        List<Map<String, Object>> parameters = api.read(path + ".get.parameters");
+        assertThat(parameters).extracting(parameter -> parameter.get("name")).containsExactlyInAnyOrder("ticketId", "page", "size");
+        List<Map<String, Object>> postParameters = api.read(path + ".post.parameters");
+        assertThat(postParameters).extracting(parameter -> parameter.get("name")).containsExactlyInAnyOrder("ticketId", "X-CSRF-TOKEN");
+        List<Map<String, Object>> pageSchema = api.read(path + ".get.parameters[?(@.name == 'page')].schema");
+        assertThat(pageSchema).singleElement().satisfies(schema -> assertThat(schema)
+                .containsEntry("default", 0).containsEntry("minimum", 0));
+        List<Map<String, Object>> sizeSchema = api.read(path + ".get.parameters[?(@.name == 'size')].schema");
+        assertThat(sizeSchema).singleElement().satisfies(schema -> assertThat(schema)
+                .containsEntry("default", 20).containsEntry("minimum", 1).containsEntry("maximum", 100));
     }
 
     @Test
@@ -148,6 +197,7 @@ class OpenApiIntegrationTests {
         for (String operation : List.of("$.paths['/api/tickets'].get", "$.paths['/api/tickets'].post",
                 "$.paths['/api/tickets/{id}'].get", "$.paths['/api/tickets/{id}/status'].patch",
                 "$.paths['/api/tickets/{id}/claim'].post",
+                "$.paths['/api/tickets/{ticketId}/comments'].get", "$.paths['/api/tickets/{ticketId}/comments'].post",
                 "$.paths['/api/auth/logout'].post")) {
             List<Map<String, Object>> security = api.read(operation + ".security");
             assertThat(security).containsExactly(Map.of("sessionAuth", List.of()));
@@ -158,7 +208,7 @@ class OpenApiIntegrationTests {
         }
         for (String operation : List.of("$.paths['/api/auth/login'].post", "$.paths['/api/auth/logout'].post",
                 "$.paths['/api/tickets'].post", "$.paths['/api/tickets/{id}/status'].patch",
-                "$.paths['/api/tickets/{id}/claim'].post")) {
+                "$.paths['/api/tickets/{id}/claim'].post", "$.paths['/api/tickets/{ticketId}/comments'].post")) {
             List<Map<String, Object>> headers = api.read(operation
                     + ".parameters[?(@.name == 'X-CSRF-TOKEN')]");
             assertThat(headers).singleElement().satisfies(header ->

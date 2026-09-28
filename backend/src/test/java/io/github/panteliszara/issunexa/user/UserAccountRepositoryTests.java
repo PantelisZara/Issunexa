@@ -53,10 +53,10 @@ class UserAccountRepositoryTests {
     void appliesAllMigrationsAndCreatesOnlyTheExpectedTables() {
         assertThat(jdbcTemplate.queryForList("""
                 SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank
-                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6");
+                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT tablename FROM pg_tables WHERE schemaname = current_schema()
-                """, String.class)).containsExactlyInAnyOrder("flyway_schema_history", "tickets", "users");
+                """, String.class)).containsExactlyInAnyOrder("flyway_schema_history", "tickets", "users", "ticket_comments");
     }
 
     @Test
