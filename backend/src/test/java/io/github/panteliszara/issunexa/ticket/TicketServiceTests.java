@@ -185,6 +185,50 @@ class TicketServiceTests {
         verifyNoInteractions(ticketRepository);
     }
 
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
+    void claimsForCanonicalActorAndReturnsManagedTicketWithoutSaving(UserRole role) {
+        UserAccount actor = new UserAccount(EMAIL, "Alice Staff", "encoded-test-value", role);
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(actor));
+        when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
+
+        assertThat(ticketService.claimTicket(42L, " \tAlice@Example.COM\n ")).isSameAs(ticket);
+
+        assertThat(ticket.getAssignee()).isSameAs(actor);
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verify(ticketRepository).findById(42L);
+        verifyNoMoreInteractions(userAccountRepository, ticketRepository);
+    }
+
+    @Test
+    void missingClaimTargetUsesExistingNotFoundException() {
+        stubActor(UserRole.AGENT);
+        when(ticketRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ticketService.claimTicket(99L, EMAIL))
+                .isInstanceOf(TicketNotFoundException.class).hasMessage("Ticket with ID 99 was not found");
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verify(ticketRepository).findById(99L);
+        verifyNoMoreInteractions(userAccountRepository, ticketRepository);
+    }
+
+    @Test
+    void propagatesAlreadyAssignedConflictWithoutSaving() {
+        stubActor(UserRole.ADMIN);
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        UserAccount original = new UserAccount("agent@example.com", "Agent", "encoded-test-value", UserRole.AGENT);
+        ticket.claim(original);
+        when(ticketRepository.findById(42L)).thenReturn(Optional.of(ticket));
+
+        assertThatThrownBy(() -> ticketService.claimTicket(42L, EMAIL))
+                .isInstanceOf(TicketAlreadyAssignedException.class);
+        assertThat(ticket.getAssignee()).isSameAs(original);
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verify(ticketRepository).findById(42L);
+        verifyNoMoreInteractions(userAccountRepository, ticketRepository);
+    }
+
     @Test
     void changesStatusAndReturnsLoadedTicketWithoutSavingAgain() {
         Ticket ticket = new Ticket("Printer offline", "The office printer is unreachable.",

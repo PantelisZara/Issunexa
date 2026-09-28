@@ -14,6 +14,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -45,6 +46,14 @@ public class Ticket {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "requester_id", nullable = true, updatable = false)
     private UserAccount requester;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assignee_id", nullable = true)
+    private UserAccount assignee;
+
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -88,12 +97,31 @@ public class Ticket {
         return requester;
     }
 
+    public UserAccount getAssignee() {
+        return assignee;
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void claim(UserAccount assignee) {
+        Objects.requireNonNull(assignee, "assignee must not be null");
+        if (this.assignee != null) {
+            throw new TicketAlreadyAssignedException();
+        }
+        switch (assignee.getRole()) {
+            case REQUESTER -> throw new IllegalArgumentException("assignee must be an AGENT or ADMIN");
+            case AGENT, ADMIN -> this.assignee = assignee;
+        }
     }
 
     public void changeStatus(TicketStatus targetStatus) {

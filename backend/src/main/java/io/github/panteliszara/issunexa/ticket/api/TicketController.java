@@ -122,13 +122,40 @@ public class TicketController {
             @ApiResponse(responseCode = "404", description = "Ticket not found. RFC 9457 Problem Detail.",
                     content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "409", description = "Invalid ticket status transition. RFC 9457 Problem Detail.",
+            @ApiResponse(responseCode = "409", description = "Invalid ticket status transition or concurrent update. "
+                    + "RFC 9457 Problem Detail.",
                     content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     })
     public TicketResponse changeStatus(@Parameter(description = "Ticket ID.", example = "42") @PathVariable Long id,
             @Valid @RequestBody UpdateTicketStatusRequest request) {
         return TicketResponse.from(ticketService.changeStatus(id, request.status()));
+    }
+
+    @PostMapping("/{id}/claim")
+    @Operation(summary = "Claim a Ticket", description = "AGENT and ADMIN may claim an unassigned Ticket. "
+            + "The authenticated staff account becomes the assignee; no assignee input or request body is accepted. "
+            + "Claiming preserves requester and status. Already-assigned Tickets cannot be claimed again.")
+    @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
+            description = "Current session CSRF token from GET /api/auth/csrf.", schema = @Schema(type = "string"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ticket claimed by the authenticated staff account.",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = TicketResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Insufficient role, or missing or invalid CSRF token.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Ticket not found. RFC 9457 Problem Detail.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Ticket already assigned or concurrent update. "
+                    + "RFC 9457 Problem Detail.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public TicketResponse claimTicket(@Parameter(description = "Ticket ID.", example = "42") @PathVariable Long id,
+            Principal principal) {
+        return TicketResponse.from(ticketService.claimTicket(id, principal.getName()));
     }
 
     @GetMapping

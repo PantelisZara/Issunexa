@@ -42,6 +42,7 @@ class OpenApiIntegrationTests {
         DocumentContext api = apiDocs();
         Map<String, Object> paths = api.read("$.paths");
         assertThat(paths).containsOnlyKeys("/api/tickets", "/api/tickets/{id}", "/api/tickets/{id}/status",
+                "/api/tickets/{id}/claim",
                 "/api/auth/csrf", "/api/auth/login", "/api/auth/logout");
         Map<String, Object> collection = api.read("$.paths['/api/tickets']");
         assertThat(collection).containsOnlyKeys("get", "post");
@@ -55,6 +56,30 @@ class OpenApiIntegrationTests {
         assertResponses(api, "$.paths['/api/tickets/{id}'].get", "200", "TicketResponse", "400", "401", "404");
         assertResponses(api, "$.paths['/api/tickets/{id}/status'].patch", "200", "TicketResponse",
                 "400", "401", "403", "404", "409");
+        assertResponses(api, "$.paths['/api/tickets/{id}/claim'].post", "200", "TicketResponse",
+                "400", "401", "403", "404", "409");
+    }
+
+    @Test
+    void documentsSelfClaimAndNullableSafeAssigneeWithoutSelectorsOrVersion() throws Exception {
+        DocumentContext api = apiDocs();
+        Map<String, Object> path = api.read("$.paths['/api/tickets/{id}/claim']");
+        assertThat(path).containsOnlyKeys("post");
+        Map<String, Object> claim = api.read("$.paths['/api/tickets/{id}/claim'].post");
+        assertThat(claim).doesNotContainKey("requestBody");
+        assertThat((String) claim.get("description"))
+                .contains("AGENT and ADMIN", "authenticated staff account", "no assignee input", "preserves requester and status");
+        List<Map<String, Object>> parameters = api.read("$.paths['/api/tickets/{id}/claim'].post.parameters");
+        assertThat(parameters).extracting(parameter -> parameter.get("name"))
+                .containsExactlyInAnyOrder("id", "X-CSRF-TOKEN");
+        Map<String, Object> assignee = api.read("$.components.schemas.TicketAssigneeResponse.properties");
+        assertThat(assignee).containsOnlyKeys("id", "displayName");
+        Map<String, Object> property = api.read("$.components.schemas.TicketResponse.properties.assignee");
+        assertThat(property.toString()).contains("TicketAssigneeResponse");
+        Map<String, Object> assigneeSchema = api.read("$.components.schemas.TicketAssigneeResponse");
+        assertThat(allowsNull(property) || allowsNull(assigneeSchema)).as("Assignee schema accepts null").isTrue();
+        assertThat(api.read("$.paths['/api/tickets/{id}/status'].patch.responses['409'].description", String.class))
+                .contains("concurrent update");
     }
 
     @Test
@@ -122,6 +147,7 @@ class OpenApiIntegrationTests {
                 .containsEntry("name", "JSESSIONID");
         for (String operation : List.of("$.paths['/api/tickets'].get", "$.paths['/api/tickets'].post",
                 "$.paths['/api/tickets/{id}'].get", "$.paths['/api/tickets/{id}/status'].patch",
+                "$.paths['/api/tickets/{id}/claim'].post",
                 "$.paths['/api/auth/logout'].post")) {
             List<Map<String, Object>> security = api.read(operation + ".security");
             assertThat(security).containsExactly(Map.of("sessionAuth", List.of()));
@@ -131,7 +157,8 @@ class OpenApiIntegrationTests {
             assertThat(publicOperation).doesNotContainKey("security");
         }
         for (String operation : List.of("$.paths['/api/auth/login'].post", "$.paths['/api/auth/logout'].post",
-                "$.paths['/api/tickets'].post", "$.paths['/api/tickets/{id}/status'].patch")) {
+                "$.paths['/api/tickets'].post", "$.paths['/api/tickets/{id}/status'].patch",
+                "$.paths['/api/tickets/{id}/claim'].post")) {
             List<Map<String, Object>> headers = api.read(operation
                     + ".parameters[?(@.name == 'X-CSRF-TOKEN')]");
             assertThat(headers).singleElement().satisfies(header ->
@@ -146,7 +173,7 @@ class OpenApiIntegrationTests {
         assertThat(create).containsOnlyKeys("title", "description", "priority");
         Map<String, Object> ticket = api.read("$.components.schemas.TicketResponse.properties");
         assertThat(ticket).containsOnlyKeys("id", "title", "description", "status", "priority",
-                "createdAt", "updatedAt");
+                "createdAt", "updatedAt", "assignee");
         assertThat(api.read("$.components.schemas.CreateTicketRequest.properties.title.minLength", Integer.class))
                 .isEqualTo(1);
         Map<String, Object> update = api.read("$.components.schemas.UpdateTicketStatusRequest.properties");
@@ -198,6 +225,24 @@ class OpenApiIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.url").value("/v3/api-docs"));
+    }
+
+    private static boolean allowsNull(Map<?, ?> schema) {
+        Object type = schema.get("type");
+        if (Boolean.TRUE.equals(schema.get("nullable")) || "null".equals(type)
+                || type instanceof List<?> types && types.contains("null")) {
+            return true;
+        }
+        for (String keyword : List.of("anyOf", "oneOf")) {
+            if (schema.get(keyword) instanceof List<?> alternatives) {
+                for (Object alternative : alternatives) {
+                    if (alternative instanceof Map<?, ?> option && allowsNull(option)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private DocumentContext apiDocs() throws Exception {

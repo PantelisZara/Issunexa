@@ -43,6 +43,16 @@ public class TicketService {
 
     @Transactional
     @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
+    public Ticket claimTicket(Long ticketId, String actorEmail) {
+        UserAccount actor = resolveCurrentAccount(actorEmail);
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new TicketNotFoundException(ticketId));
+        ticket.claim(actor);
+        return ticket;
+    }
+
+    @Transactional
+    @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
     public Ticket changeStatus(Long id, TicketStatus targetStatus) {
         Ticket ticket = ticketRepository.findById(id)
                 .orElseThrow(() -> new TicketNotFoundException(id));

@@ -113,9 +113,9 @@ class TicketAuthorizationIntegrationTests {
         Long adminId = createTicket("Admin note", TicketPriority.HIGH, "admin@example.com").getId();
         // The schema intentionally permits historical Tickets whose requester is unknown.
         historicalId = jdbcTemplate.queryForObject("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at)
+                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, version)
                 VALUES ('Ancient login', 'Login failure', 'OPEN', 'HIGH',
-                        TIMESTAMPTZ '2000-01-01 00:00:00+00', TIMESTAMPTZ '2000-01-01 00:00:00+00') RETURNING id
+                        TIMESTAMPTZ '2000-01-01 00:00:00+00', TIMESTAMPTZ '2000-01-01 00:00:00+00', 0) RETURNING id
                 """, Long.class);
         ticketRepository.flush();
         allIds = List.of(firstOwnedId, secondOwnedId, otherOwnedId, hiddenId, historicalId, agentId, adminId);
@@ -245,6 +245,36 @@ class TicketAuthorizationIntegrationTests {
                 role == UserRole.REQUESTER ? "OPEN" : "IN_PROGRESS");
     }
 
+    @ParameterizedTest
+    @EnumSource(UserRole.class)
+    void serviceProxyEnforcesClaimRolesBeforeTicketAccess(UserRole role) throws Exception {
+        String email = role == UserRole.REQUESTER ? REQUESTER_A : staffEmail(role);
+        MockHttpSession session = login(email);
+        SecurityContext context = (SecurityContext) session
+                .getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+        clearInvocations(ticketRepository);
+
+        try {
+            SecurityContextHolder.setContext(context);
+            if (role == UserRole.REQUESTER) {
+                assertThatThrownBy(() -> ticketService.claimTicket(firstOwnedId, email))
+                        .isInstanceOf(AccessDeniedException.class);
+                verifyNoInteractions(ticketRepository);
+            } else {
+                assertThat(ticketService.claimTicket(firstOwnedId, email).getAssignee().getEmail()).isEqualTo(email);
+                verify(ticketRepository).findById(firstOwnedId);
+            }
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+        ticketRepository.flush();
+        entityManager.clear();
+        Long expected = role == UserRole.REQUESTER ? null
+                : jdbcTemplate.queryForObject("SELECT id FROM users WHERE email = ?", Long.class, email);
+        assertThat(jdbcTemplate.queryForObject("SELECT assignee_id FROM tickets WHERE id = ?",
+                Long.class, firstOwnedId)).isEqualTo(expected);
+    }
+
     @Test
     void unauthenticatedTicketAccessStillUsesUnauthorizedProblemDetails() throws Exception {
         assertProblem(mockMvc.perform(get("/api/tickets")), 401, "Authentication required",
@@ -258,7 +288,7 @@ class TicketAuthorizationIntegrationTests {
     void flywayCreatesOnlyTheRequesterBtreeIndexInV5() {
         assertThat(jdbcTemplate.queryForList("""
                 SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank
-                """, String.class)).containsExactly("1", "2", "3", "4", "5");
+                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'tickets'
                 """, String.class)).containsExactlyInAnyOrder("pk_tickets", "idx_tickets_requester_id");
@@ -315,7 +345,7 @@ class TicketAuthorizationIntegrationTests {
     private void assertTicketResponse(ResultActions result, Long id) throws Exception {
         MvcResult response = result.andExpect(status().isOk()).andExpect(jsonPath("$.id").value(id)).andReturn();
         Map<String, Object> body = JsonPath.read(response.getResponse().getContentAsString(), "$");
-        assertThat(body).containsOnlyKeys("id", "title", "description", "status", "priority", "createdAt", "updatedAt");
+        assertThat(body).containsOnlyKeys("id", "title", "description", "status", "priority", "createdAt", "updatedAt", "assignee");
     }
 
     private void assertProblem(ResultActions result, int code, String title, String detail, String instance)

@@ -5,6 +5,8 @@ import io.github.panteliszara.issunexa.user.UserRole;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,6 +31,58 @@ class TicketTests {
                 TicketStatus.OPEN, TicketPriority.HIGH, null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("requester must not be null");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
+    void claimsUnassignedTicketWithoutChangingRequesterOrStatus(UserRole role) {
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        UserAccount staff = new UserAccount("staff@example.com", "Staff", "encoded-test-value", role);
+        assertThat(ticket.getAssignee()).isNull();
+
+        ticket.claim(staff);
+
+        assertThat(ticket.getAssignee()).isSameAs(staff);
+        assertThat(ticket.getRequester()).isSameAs(requester);
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.OPEN);
+        assertThat(ticket.getVersion()).isZero();
+    }
+
+    @Test
+    void rejectsRequesterAsAssigneeWithoutMutation() {
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+
+        assertThatThrownBy(() -> ticket.claim(requester))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("assignee must be an AGENT or ADMIN");
+        assertThat(ticket.getAssignee()).isNull();
+        assertThat(ticket.getRequester()).isSameAs(requester);
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.OPEN);
+    }
+
+    @Test
+    void rejectsNullAssigneeWithoutMutation() {
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+
+        assertThatThrownBy(() -> ticket.claim(null))
+                .isInstanceOf(NullPointerException.class).hasMessage("assignee must not be null");
+        assertThat(ticket.getAssignee()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rejectsRepeatedClaimBySameOrDifferentStaff(boolean sameStaff) {
+        Ticket ticket = new Ticket("Printer offline", "No connection", TicketStatus.OPEN, TicketPriority.HIGH, requester);
+        UserAccount agent = new UserAccount("agent@example.com", "Agent", "encoded-test-value", UserRole.AGENT);
+        UserAccount next = sameStaff ? agent
+                : new UserAccount("admin@example.com", "Admin", "encoded-test-value", UserRole.ADMIN);
+        ticket.claim(agent);
+
+        assertThatThrownBy(() -> ticket.claim(next))
+                .isInstanceOf(TicketAlreadyAssignedException.class)
+                .hasMessage("The ticket already has an assignee.");
+        assertThat(ticket.getAssignee()).isSameAs(agent);
+        assertThat(ticket.getRequester()).isSameAs(requester);
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.OPEN);
     }
 
     @ParameterizedTest(name = "allows {0} -> {1}")

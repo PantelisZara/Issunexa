@@ -111,8 +111,8 @@ class TicketRepositoryTests {
     void loadsHistoricalTicketWithoutRequester() {
         // V4 intentionally preserves historical Tickets without inventing an owner.
         Long id = jdbcTemplate.queryForObject("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at)
-                VALUES ('Historical ticket', 'Unknown requester', 'OPEN', 'LOW', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, version)
+                VALUES ('Historical ticket', 'Unknown requester', 'OPEN', 'LOW', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                 RETURNING id
                 """, Long.class);
         entityManager.clear();
@@ -126,8 +126,8 @@ class TicketRepositoryTests {
     @Test
     void rejectsNonexistentRequesterThroughSql() {
         assertThatThrownBy(() -> jdbcTemplate.update("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, requester_id)
-                VALUES ('Invalid owner', 'Missing User', 'OPEN', 'HIGH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, -1)
+                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, requester_id, version)
+                VALUES ('Invalid owner', 'Missing User', 'OPEN', 'HIGH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, -1, 0)
                 """))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .rootCause()
@@ -398,8 +398,8 @@ class TicketRepositoryTests {
     })
     void rejectsInvalidEnumValuesThroughSql(String status, String priority, String constraintName) {
         assertThatThrownBy(() -> jdbcTemplate.update("""
-                INSERT INTO tickets (title, description, status, priority, created_at, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO tickets (title, description, status, priority, created_at, updated_at, version)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                 """, "Invalid ticket", "Invalid enum value", status, priority))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .rootCause()

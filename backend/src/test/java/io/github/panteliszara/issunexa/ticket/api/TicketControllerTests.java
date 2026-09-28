@@ -2,6 +2,7 @@ package io.github.panteliszara.issunexa.ticket.api;
 
 import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
 import io.github.panteliszara.issunexa.ticket.Ticket;
+import io.github.panteliszara.issunexa.ticket.TicketAlreadyAssignedException;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
 import io.github.panteliszara.issunexa.ticket.TicketService;
@@ -10,6 +11,7 @@ import io.github.panteliszara.issunexa.ticket.TicketSortField;
 import io.github.panteliszara.issunexa.ticket.TicketStatus;
 import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserRole;
+import jakarta.persistence.OptimisticLockException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -25,6 +27,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -101,6 +104,64 @@ class TicketControllerTests {
 
         verify(ticketService).createTicket("Printer offline", "The office printer is unreachable.",
                 TicketPriority.HIGH, EMAIL);
+    }
+
+    @Test
+    void claimsForTrustedPrincipalAndExposesOnlySafeAssigneeSummary() throws Exception {
+        Ticket ticket = persistedTicket("Printer offline", TicketStatus.OPEN);
+        UserAccount agent = new UserAccount(EMAIL, "Alice Agent", "encoded-secret", UserRole.AGENT);
+        ReflectionTestUtils.setField(agent, "id", 7L);
+        ticket.claim(agent);
+        when(ticketService.claimTicket(42L, EMAIL)).thenReturn(ticket);
+
+        mockMvc.perform(post("/api/tickets/42/claim").principal(() -> EMAIL))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json(ticketJson("Printer offline", "OPEN")
+                        .replace("\"assignee\":null", "\"assignee\":{\"id\":7,\"displayName\":\"Alice Agent\"}"),
+                        JsonCompareMode.STRICT));
+
+        verify(ticketService).claimTicket(42L, EMAIL);
+    }
+
+    @Test
+    void alreadyAssignedClaimReturnsSafeConflict() throws Exception {
+        when(ticketService.claimTicket(42L, EMAIL)).thenThrow(new TicketAlreadyAssignedException());
+
+        mockMvc.perform(post("/api/tickets/42/claim").principal(() -> EMAIL))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {"type":"about:blank","title":"Ticket already assigned","status":409,
+                         "detail":"The ticket already has an assignee.","instance":"/api/tickets/42/claim"}
+                        """, JsonCompareMode.STRICT));
+    }
+
+    @ParameterizedTest
+    @MethodSource("optimisticFailures")
+    void optimisticFailureReturnsSafeConflictForClaimAndStatus(RuntimeException failure) throws Exception {
+        when(ticketService.claimTicket(42L, EMAIL)).thenThrow(failure);
+        when(ticketService.changeStatus(42L, TicketStatus.IN_PROGRESS)).thenThrow(failure);
+
+        for (String operation : List.of("claim", "status")) {
+            String path = "/api/tickets/42/" + operation;
+            MockHttpServletRequestBuilder request = operation.equals("claim")
+                    ? post(path).principal(() -> EMAIL)
+                    : patch(path).contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"IN_PROGRESS\"}");
+            mockMvc.perform(request)
+                    .andExpect(status().isConflict())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(content().json("""
+                            {"type":"about:blank","title":"Concurrent ticket update","status":409,
+                             "detail":"The ticket was modified by another request. Reload it and retry.",
+                             "instance":"%s"}
+                            """.formatted(path), JsonCompareMode.STRICT));
+        }
+    }
+
+    static Stream<RuntimeException> optimisticFailures() {
+        return Stream.of(new ObjectOptimisticLockingFailureException(Ticket.class, 42L),
+                new OptimisticLockException("Internal SQL and version details must not escape"));
     }
 
     static Stream<String> validTitles() {
@@ -803,7 +864,8 @@ class TicketControllerTests {
                   "status":"%s",
                   "priority":"%s",
                   "createdAt":"2026-09-23T10:00:00Z",
-                  "updatedAt":"2026-09-23T10:05:00Z"
+                  "updatedAt":"2026-09-23T10:05:00Z",
+                  "assignee":null
                 }
                 """.formatted(title, status, priority);
     }

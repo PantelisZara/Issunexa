@@ -15,6 +15,8 @@ The current backend supports creating and retrieving Tickets through a REST API,
 
 Flyway owns schema creation; its first migration creates the `tickets` table. Tickets can be saved and loaded through a Spring Data JPA repository. Hibernate validates the schema (`ddl-auto=validate`), and Open EntityManager in View is disabled.
 
+Ticket updates use JPA optimistic locking. Conflicting updates return `409` Problem Details so clients can reload and retry.
+
 ## Prerequisites
 
 - JDK 21. Set `JAVA_HOME` to its installation directory and put its `bin` directory on `PATH`.
@@ -37,7 +39,7 @@ cd backend
 ./mvnw package
 ```
 
-The integration tests use disposable PostgreSQL 18.6 containers to verify persistence, database constraints, generated API documentation and session authentication against the Flyway-created schema. Security integration tests use real accounts, password verification and the full filter chain to check login, session fixation protection, CSRF rotation and logout. Persistence tests roll back their data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the containers after the tests.
+The integration tests use disposable PostgreSQL 18.6 containers to verify persistence, database constraints, generated API documentation and session authentication against the Flyway-created schema. Security integration tests use real accounts, password verification and the full filter chain to check login, session fixation protection, CSRF rotation and logout. Assignment and concurrency tests use committed transactions in isolated test databases; other persistence tests roll back their data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the containers after the tests.
 
 Service unit tests and MVC controller slice tests run without PostgreSQL. Ticket MVC slices isolate security filters to focus on binding, validation and HTTP contracts; full-context security tests cover authentication and CSRF separately. `package` compiles the application, runs the full test suite and creates an executable JAR. `./mvnw verify` also runs the complete suite, including security integration tests, in CI. The full suite requires the container runtime and fails if it is unavailable.
 
@@ -51,17 +53,17 @@ Authentication uses email, password and an HTTP session cookie. Accounts are pro
 | POST | `/api/auth/login` | Accepts JSON `email` and `password`; returns `204` on success |
 | POST | `/api/auth/logout` | Invalidates the authenticated session; returns `204` on success |
 
-Retain the session cookie when fetching a CSRF token and send the token in the returned header name on login. After successful login, retain the updated session cookie and fetch a fresh CSRF token. Unsafe requests, including Ticket creation, status changes and logout, require that token. Fetch a new token again after logout before another login.
+Retain the session cookie when fetching a CSRF token and send the token in the returned header name on login. After successful login, retain the updated session cookie and fetch a fresh CSRF token. Unsafe requests, including Ticket creation, claims, status changes and logout, require that token. Fetch a new token again after logout before another login.
 
 All Ticket endpoints require an authenticated session. GET requests do not require CSRF. Missing authentication returns `401` Problem Details; missing or invalid CSRF returns `403` Problem Details, including on login. Invalid credentials return the same generic `401` response for unknown emails and incorrect passwords. On unsafe requests, CSRF validation runs before the authentication requirement.
 
 New Tickets belong to the authenticated account; clients cannot select a requester.
 
-| Role | Create | List/get | Change status |
-| --- | --- | --- | --- |
-| REQUESTER | Allowed | Own Tickets only | Forbidden (`403`) |
-| AGENT | Allowed | All Tickets | Allowed |
-| ADMIN | Allowed | All Tickets | Allowed |
+| Role | Create | List/get | Change status | Claim unassigned |
+| --- | --- | --- | --- | --- |
+| REQUESTER | Allowed | Own Tickets only | Forbidden (`403`) | Forbidden (`403`) |
+| AGENT | Allowed | All Tickets | Allowed | Allowed |
+| ADMIN | Allowed | All Tickets | Allowed | Allowed |
 
 For REQUESTER, other users' Tickets and historical Tickets without a requester are absent from listings and return the same `404` as missing Tickets. AGENT and ADMIN can view and update the status of historical Tickets. Listing totals reflect only visible, matching Tickets. ADMIN-specific User administration is not implemented yet.
 
@@ -75,8 +77,11 @@ When the application is running locally, OpenAPI JSON is available at `/v3/api-d
 | GET | `/api/tickets/{id}` | `200 OK` and Ticket JSON |
 | GET | `/api/tickets` | `200 OK`, Ticket content and page metadata |
 | PATCH | `/api/tickets/{id}/status` | `200 OK` and the updated Ticket JSON |
+| POST | `/api/tickets/{id}/claim` | `200 OK` and the updated Ticket JSON |
 
 Creation accepts `title`, `description` and `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`). Title and description must not be blank; title is limited to 255 characters and priority is required. New Tickets start as `OPEN`.
+
+AGENT and ADMIN can claim an unassigned Ticket for themselves with no request body. The authenticated account becomes the assignee; clients cannot select another account. Claiming preserves requester and status. Any repeated claim returns `409`, including a repeat by the same staff account. Ticket responses contain `assignee: null` when unassigned, or an assignee summary with only `id` and `displayName`.
 
 Status changes accept only `status`, for example `PATCH /api/tickets/42/status` with `{"status":"IN_PROGRESS"}`. The allowed transitions are:
 

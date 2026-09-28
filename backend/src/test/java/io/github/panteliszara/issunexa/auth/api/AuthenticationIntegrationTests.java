@@ -303,7 +303,7 @@ class AuthenticationIntegrationTests {
 
         Map<String, Object> response = JsonPath.read(result.getResponse().getContentAsString(), "$");
         assertThat(response).containsOnlyKeys("id", "title", "description", "status", "priority",
-                "createdAt", "updatedAt");
+                "createdAt", "updatedAt", "assignee");
         Long ticketId = ((Number) response.get("id")).longValue();
         ticketRepository.flush();
         entityManager.clear();

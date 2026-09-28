@@ -1,8 +1,11 @@
 package io.github.panteliszara.issunexa.shared.web;
 
 import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
+import io.github.panteliszara.issunexa.ticket.TicketAlreadyAssignedException;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
+import jakarta.persistence.OptimisticLockException;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -49,6 +52,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
         problem.setType(ABOUT_BLANK);
         problem.setTitle("Invalid ticket status transition");
+        return problem;
+    }
+
+    @ExceptionHandler(TicketAlreadyAssignedException.class)
+    public ProblemDetail handleTicketAlreadyAssigned(TicketAlreadyAssignedException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        problem.setType(ABOUT_BLANK);
+        problem.setTitle("Ticket already assigned");
+        return problem;
+    }
+
+    @ExceptionHandler({OptimisticLockingFailureException.class, OptimisticLockException.class})
+    public ProblemDetail handleConcurrentTicketUpdate(Exception exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "The ticket was modified by another request. Reload it and retry.");
+        problem.setType(ABOUT_BLANK);
+        problem.setTitle("Concurrent ticket update");
         return problem;
     }
 
