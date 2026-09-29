@@ -5,6 +5,13 @@ target/
 hs_err_pid*
 replay_pid*
 
+# Frontend generated files
+node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+*.tsbuildinfo
+
 # IntelliJ IDEA and VS Code
 .idea/
 *.iml

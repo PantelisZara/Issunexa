@@ -57,6 +57,34 @@ docker compose down
 
 `docker compose down` removes the containers and network but preserves database data. **`docker compose down -v` also deletes the named PostgreSQL volume and all local database data.** PostgreSQL initialization settings apply only to an empty volume; editing the password in `.env` does not change an existing database user's password.
 
+## Frontend development
+
+The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. The current foundation provides a minimal shell, root/not-found routing and a JSON API boundary; authentication and Ticket screens are not implemented yet. Official logo assets will be integrated when supplied; the shell uses plain text branding.
+
+Start the backend on port **8080** using the Docker workflow above or the Maven workflow below. Then, in another terminal:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open the local URL printed by Vite (normally `http://localhost:5173`). Vite forwards relative `/api` requests to `http://localhost:8080`; no backend CORS changes are needed. This proxy is for development only. The frontend shell can load without the backend, but API requests require it.
+
+Verification commands, from `frontend/`:
+
+```sh
+npm run lint
+npm test
+npm run build
+```
+
+`npm test` runs Vitest once; `npm run test:watch` watches for changes. The production build type-checks before writing `dist/`. Commit the npm lockfile when reviewing changes; generated dependencies, build output and coverage stay ignored.
+
+The build uses stable TypeScript 7 through the `@typescript/native` npm alias. ESLint needs the older compiler API, so `typescript` aliases Microsoft's `@typescript/typescript6` compatibility package, following the [official side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60). The `tsc` build command still runs TypeScript 7.
+
+API calls use `src/api/apiRequest.ts` with relative `/api/...` paths and session credentials. JSON is returned as `unknown` unless the caller supplies a narrowing decoder; empty success responses return `undefined`. HTTP failures become `ApiError` with optional structured Problem Details. Callers can supply headers for future CSRF support, but no authentication workflow is implemented. No frontend environment variables are needed; never put secrets in browser-visible `VITE_` variables.
+
 ## Non-Docker prerequisites
 
 - JDK 21. Set `JAVA_HOME` to its installation directory and put its `bin` directory on `PATH`.
@@ -195,6 +223,7 @@ The application uses Spring Boot's default HTTP port, `8080`. OpenAPI and Swagge
 ├── .gitignore            # Generated and local files
 ├── .env.example          # Local Compose configuration template; no password
 ├── compose.yaml          # Backend and PostgreSQL local environment
+├── frontend/             # React, TypeScript, Vite and frontend tests
 ├── README.md
 └── backend/
     ├── Dockerfile        # Maven build and non-root Java 21 runtime
