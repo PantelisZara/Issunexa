@@ -17,7 +17,47 @@ Flyway owns schema creation; its first migration creates the `tickets` table. Ti
 
 Ticket updates use JPA optimistic locking. Conflicting updates return `409` Problem Details so clients can reload and retry.
 
-## Prerequisites
+## Local Docker environment
+
+Requires Git and Docker with modern `docker compose` and Buildx support (included with Docker Desktop). No host Java, Maven or PostgreSQL installation is needed for this workflow. On Linux, ensure your Docker installation includes the Compose and Buildx CLI plugins. Initial builds need internet access for images and Maven dependencies.
+
+From the repository root:
+
+```sh
+cp .env.example .env
+```
+
+Set `ISSUNEXA_POSTGRES_PASSWORD` in `.env` to your own local database password, then run:
+
+```sh
+docker compose up --build
+```
+
+An absent or empty password stops Compose with a configuration error. `.env` is ignored; keep it local. The backend is built from source using the Maven Wrapper and runs as a non-root user on Java 21. Image construction skips tests; the normal Maven and CI workflows still run the full suite.
+
+PostgreSQL 18.6 must pass its health check before the backend starts. The backend connects through the Compose service name `postgres`, applies Flyway V1–V9, and validates the schema with Hibernate. Database data lives in the `postgres_data` named volume mounted at `/var/lib/postgresql`, the PostgreSQL 18 volume layout.
+
+Both published ports bind to `127.0.0.1`. With the default backend port:
+
+- Backend base URL: `http://localhost:8080` (there is no homepage; API routes require authentication as described below).
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs`.
+- Swagger UI: `http://localhost:8080/swagger-ui.html`.
+
+Set `ISSUNEXA_BACKEND_PORT` or `ISSUNEXA_POSTGRES_PORT` in `.env` if the default `8080` or `5432` is occupied. Use the configured backend port in URLs. Optional local database tools can connect to `127.0.0.1` on the configured PostgreSQL port, using the database/user settings and password from `.env`.
+
+Useful commands:
+
+```sh
+docker compose up --build
+docker compose up -d --build
+docker compose logs -f backend
+docker compose ps
+docker compose down
+```
+
+`docker compose down` removes the containers and network but preserves database data. **`docker compose down -v` also deletes the named PostgreSQL volume and all local database data.** PostgreSQL initialization settings apply only to an empty volume; editing the password in `.env` does not change an existing database user's password.
+
+## Non-Docker prerequisites
 
 - JDK 21. Set `JAVA_HOME` to its installation directory and put its `bin` directory on `PATH`.
 - Internet access for the initial Maven, dependency and container image downloads.
@@ -153,8 +193,12 @@ The application uses Spring Boot's default HTTP port, `8080`. OpenAPI and Swagge
 .
 ├── .editorconfig          # Shared formatting rules
 ├── .gitignore            # Generated and local files
+├── .env.example          # Local Compose configuration template; no password
+├── compose.yaml          # Backend and PostgreSQL local environment
 ├── README.md
 └── backend/
+    ├── Dockerfile        # Maven build and non-root Java 21 runtime
+    ├── .dockerignore     # Excludes local files from the build context
     ├── .mvn/wrapper/     # Maven Wrapper configuration
     ├── mvnw              # Linux/macOS wrapper
     ├── mvnw.cmd          # Windows wrapper

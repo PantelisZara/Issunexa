@@ -1,0 +1,15 @@
+target/
+.git/
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.env
+.env.*
+*.log
+*.tmp
+hs_err_pid*
+replay_pid*
+.DS_Store
+*~
