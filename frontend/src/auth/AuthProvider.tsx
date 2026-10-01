@@ -68,6 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return csrf.current;
     }
 
+    async function getMutationCsrf(refresh = false) {
+        if (state.status !== 'authenticated') throw new Error('Authentication required.');
+        return refresh ? refreshCsrf() : csrf.current ?? refreshCsrf();
+    }
+
     async function retry() {
         if (state.status !== 'error' || !begin()) return;
         setState({ status: 'loading' });
@@ -157,5 +162,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    return <AuthContext value={{ state, pending, login, logout, retry, expireSession }}>{children}</AuthContext>;
+    return <AuthContext value={{ state, pending, login, logout, retry, expireSession, getMutationCsrf }}>{children}</AuthContext>;
 }

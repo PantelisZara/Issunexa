@@ -21,7 +21,7 @@ function decodeAssignee(value: unknown): Ticket['assignee'] {
     return { id: value.id, displayName: value.displayName };
 }
 
-function decodeTicket(value: unknown): Ticket {
+export function decodeTicket(value: unknown): Ticket {
     if (!record(value) || !integer(value.id, 1) || typeof value.title !== 'string'
         || typeof value.description !== 'string' || !isSupported(ticketStatuses, value.status)
         || !isSupported(ticketPriorities, value.priority) || !isSupported(ticketCategories, value.category)

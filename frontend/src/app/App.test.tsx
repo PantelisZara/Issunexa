@@ -46,7 +46,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('authentication routes and form', () => {
-    it.each(['/', '/app', '/app/tickets'])('redirects anonymous %s to an accessible login form', async (path) => {
+    it.each(['/', '/app', '/app/tickets', '/app/tickets/new', '/app/tickets/42'])('redirects anonymous %s to an accessible login form', async (path) => {
         anonymous();
         renderApp(path);
         const main = screen.getByRole('main');

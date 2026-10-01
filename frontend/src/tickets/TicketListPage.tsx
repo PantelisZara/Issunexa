@@ -1,17 +1,11 @@
 import { useEffect, useState, type SubmitEvent } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import { ApiError } from '../api/ApiError';
 import { useAuth } from '../auth/useAuth';
 import { getTickets } from './ticketApi';
 import { readTicketQuery, serializeTicketQuery } from './ticketQuery';
-import { ticketCategories, ticketPriorities, ticketStatuses, type TicketPage, type TicketQuery } from './ticketTypes';
+import { ticketCategories, ticketLabels as labels, ticketPriorities, ticketStatuses, type TicketPage, type TicketQuery } from './ticketTypes';
 import './tickets.css';
-
-const labels: Record<string, string> = {
-    OPEN: 'Open', IN_PROGRESS: 'In progress', RESOLVED: 'Resolved', CLOSED: 'Closed',
-    LOW: 'Low', MEDIUM: 'Medium', HIGH: 'High', URGENT: 'Urgent',
-    INCIDENT: 'Incident', SERVICE_REQUEST: 'Service request', ACCESS_REQUEST: 'Access request', OTHER: 'Other',
-};
 
 type Result = { attempt: number } & ({ status: 'success'; data: TicketPage } | { status: 'error'; message: string });
 
@@ -86,6 +80,8 @@ function TicketControls({ query, change, reset }: {
 }
 
 function TicketResults({ data, navigate }: { data: TicketPage; navigate: (page: number) => void }) {
+    const location = useLocation();
+    const ticketListUrl = `${location.pathname}${location.search}`;
     return (
         <>
             <p role="status">{data.totalElements} {data.totalElements === 1 ? 'ticket' : 'tickets'}</p>
@@ -104,7 +100,7 @@ function TicketResults({ data, navigate }: { data: TicketPage; navigate: (page: 
                         </tr></thead>
                         <tbody>{data.content.map((ticket) => (
                             <tr key={ticket.id}>
-                                <th scope="row">{ticket.title}</th>
+                                <th scope="row"><Link to={`/app/tickets/${ticket.id}`} state={{ ticketListUrl }}>{ticket.title}</Link></th>
                                 <td>{labels[ticket.status]}</td><td>{labels[ticket.priority]}</td><td>{labels[ticket.category]}</td>
                                 <td>{ticket.assignee?.displayName ?? 'Unassigned'}</td>
                                 <td><time dateTime={ticket.createdAt}>{new Date(ticket.createdAt).toLocaleString()}</time></td>
@@ -157,6 +153,7 @@ function TicketLoader({ queryString, navigate }: { queryString: string; navigate
 
 export function TicketListPage() {
     const [params, setParams] = useSearchParams();
+    const location = useLocation();
     const query = readTicketQuery(params);
     const queryString = serializeTicketQuery(query).toString();
 
@@ -172,6 +169,8 @@ export function TicketListPage() {
         <section className="ticket-workspace" aria-labelledby="tickets-heading">
             <h1 id="tickets-heading">Tickets</h1>
             <p className="muted">Search and browse your available tickets.</p>
+            <Link className="ticket-create-link" to="/app/tickets/new"
+                state={{ ticketListUrl: `${location.pathname}${location.search}` }}>Create ticket</Link>
             <TicketControls key={query.q} query={query} change={change} reset={() => setParams({})} />
             <TicketLoader key={queryString} queryString={queryString} navigate={(page) => {
                 const next = serializeTicketQuery(query);

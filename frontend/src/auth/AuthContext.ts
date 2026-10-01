@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { AuthState } from './authTypes';
+import type { AuthState, CsrfMetadata } from './authTypes';
 
 export interface AuthContextValue {
     state: AuthState;
@@ -8,6 +8,7 @@ export interface AuthContextValue {
     logout: () => Promise<string | undefined>;
     retry: () => Promise<void>;
     expireSession: () => void;
+    getMutationCsrf: (refresh?: boolean) => Promise<CsrfMetadata>;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

@@ -70,7 +70,7 @@ describe('Ticket workspace', () => {
         expect(screen.getByText('Page 1 · 3 total pages')).toBeVisible();
         expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
-        expect(screen.queryByRole('link', { name: ticket.title })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: ticket.title })).toHaveAttribute('href', '/app/tickets/42');
     });
 
     it('renders an empty result with disabled pagination', async () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/ApiError';
 import { ticket, ticketPage } from '../test/ticketFixtures';
-import { getTickets } from './ticketApi';
+import { createTicket, getTicket, getTickets } from './ticketApi';
 import { decodeTicketPage } from './ticketDecoders';
 import { readTicketQuery } from './ticketQuery';
 
@@ -84,5 +84,71 @@ describe('Ticket API and URL contract', () => {
     it('accepts explicit empty out-of-range pages without inventing totals', () => {
         const page = ticketPage({ content: [], page: 5, totalElements: 2, first: false, last: true });
         expect(decodeTicketPage(page)).toEqual(page);
+    });
+});
+
+describe('Ticket creation and detail API', () => {
+    const csrf = { token: 'synthetic-current-csrf', headerName: 'X-CUSTOM-CSRF' };
+    const input = { title: ' New ticket ', description: 'Line one\nLine two', priority: 'HIGH', category: 'SERVICE_REQUEST' } as const;
+
+    it('POSTs only backend-supported fields with current CSRF and decodes the created Ticket', async () => {
+        fetchMock.mockResolvedValue(Response.json({ ...ticket, assignee: null }, { status: 201 }));
+        const controller = new AbortController();
+        await expect(createTicket({ ...input, ...{ id: 99, status: 'CLOSED', requester: 7, assignee: 7 } }, csrf, controller.signal))
+            .resolves.toEqual({ ...ticket, assignee: null });
+        const [path, options] = fetchMock.mock.calls[0] ?? [];
+        expect(path).toBe('/api/tickets');
+        expect(options).toMatchObject({ method: 'POST', credentials: 'include', signal: controller.signal });
+        expect(JSON.parse(String(options?.body))).toEqual(input);
+        const headers = new Headers(options?.headers);
+        expect(headers.get(csrf.headerName)).toBe(csrf.token);
+        expect(headers.get('Content-Type')).toBe('application/json');
+        expect(headers.has('Authorization')).toBe(false);
+    });
+
+    it.each([ticket.assignee, null])('GETs and decodes a Ticket with assignee %j', async (assignee) => {
+        fetchMock.mockResolvedValue(Response.json({ ...ticket, assignee, requester: 'discarded' }));
+        const controller = new AbortController();
+        await expect(getTicket('42', controller.signal)).resolves.toEqual({ ...ticket, assignee });
+        expect(fetchMock).toHaveBeenCalledWith('/api/tickets/42', expect.objectContaining({
+            cache: 'no-store', credentials: 'include', signal: controller.signal,
+        }));
+        expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined();
+        expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has(csrf.headerName)).toBe(false);
+    });
+
+    it('encodes detail path input and preserves a full Long route identifier', async () => {
+        fetchMock.mockImplementation(async () => Response.json(ticket));
+        await getTicket('9223372036854775807');
+        expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/tickets/9223372036854775807');
+        await getTicket('42/../auth?query=value');
+        expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/tickets/42%2F..%2Fauth%3Fquery%3Dvalue');
+    });
+
+    it.each(['create', 'detail'] as const)('rejects malformed %s response payloads', async (operation) => {
+        for (const payload of [null, {}, { ...ticket, id: '42' }, { ...ticket, category: 'SUPPORT' }, { ...ticket, assignee: {} }]) {
+            fetchMock.mockResolvedValueOnce(Response.json(payload, { status: operation === 'create' ? 201 : 200 }));
+            const request = operation === 'create' ? createTicket(input, csrf) : getTicket('42');
+            await expect(request).rejects.toBeInstanceOf(TypeError);
+        }
+    });
+
+    it.each(['create', 'detail'] as const)('rejects empty or invalid JSON %s success without fabricating a Ticket', async (operation) => {
+        for (const response of [new Response(null, { status: 204 }), new Response('invalid JSON')]) {
+            fetchMock.mockResolvedValueOnce(response);
+            await expect(operation === 'create' ? createTicket(input, csrf) : getTicket('42')).rejects.toBeInstanceOf(Error);
+        }
+    });
+
+    it.each([
+        ['create', 400], ['create', 403], ['create', 401], ['create', 500],
+        ['detail', 404], ['detail', 401], ['detail', 500],
+    ] as const)('preserves %s HTTP %s as ApiError without replaying requests', async (operation, status) => {
+        const problem = { status, detail: 'Internal diagnostic' };
+        fetchMock.mockResolvedValue(Response.json(problem, { status, headers: { 'Content-Type': 'application/problem+json' } }));
+        const request = operation === 'create' ? createTicket(input, csrf) : getTicket('42');
+        await expect(request).rejects.toBeInstanceOf(ApiError);
+        await expect(request).rejects.toMatchObject({ status, problem });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 });

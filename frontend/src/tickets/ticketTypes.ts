@@ -16,6 +16,14 @@ export interface Ticket {
     assignee: { id: number; displayName: string } | null;
 }
 
+export type CreateTicketInput = Pick<Ticket, 'title' | 'description' | 'priority' | 'category'>;
+
+export const ticketLabels: Record<Ticket['status'] | Ticket['priority'] | Ticket['category'], string> = {
+    OPEN: 'Open', IN_PROGRESS: 'In progress', RESOLVED: 'Resolved', CLOSED: 'Closed',
+    LOW: 'Low', MEDIUM: 'Medium', HIGH: 'High', URGENT: 'Urgent',
+    INCIDENT: 'Incident', SERVICE_REQUEST: 'Service request', ACCESS_REQUEST: 'Access request', OTHER: 'Other',
+};
+
 export interface TicketPage {
     content: Ticket[];
     page: number;
