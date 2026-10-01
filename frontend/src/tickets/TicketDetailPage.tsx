@@ -5,6 +5,7 @@ import { useAuth } from '../auth/useAuth';
 import { getTicket } from './ticketApi';
 import { ticketListLocation } from './ticketNavigation';
 import { ticketLabels, type Ticket } from './ticketTypes';
+import { TicketWorkflow } from './TicketWorkflow';
 import './tickets.css';
 
 type Result = { attempt: number } & ({ status: 'success'; ticket: Ticket } | { status: 'error'; notFound: boolean });
@@ -53,6 +54,8 @@ function TicketDetail({ id }: { id: string }) {
             </dl>
             <h2>Description</h2>
             <p className="ticket-description">{ticket.description}</p>
+            <TicketWorkflow ticket={ticket} onUpdated={(updated) => setResult({ attempt, status: 'success', ticket: updated })}
+                onRefresh={() => setAttempt((value) => value + 1)} />
         </>
     );
 }

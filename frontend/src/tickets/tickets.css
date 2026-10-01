@@ -98,3 +98,5 @@
 .ticket-metadata dt { font-weight: 600; }
 .ticket-metadata dd { margin: 0.25rem 0 0; }
 .ticket-description { white-space: pre-wrap; }
+.ticket-workflow { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #d9dde5; }
+.ticket-workflow .ticket-actions { gap: 0.75rem; }

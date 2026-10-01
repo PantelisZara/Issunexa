@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/ApiError';
 import { ticket, ticketPage } from '../test/ticketFixtures';
-import { createTicket, getTicket, getTickets } from './ticketApi';
+import { changeTicketStatus, claimTicket, createTicket, getTicket, getTickets } from './ticketApi';
 import { decodeTicketPage } from './ticketDecoders';
 import { readTicketQuery } from './ticketQuery';
 
@@ -84,6 +84,66 @@ describe('Ticket API and URL contract', () => {
     it('accepts explicit empty out-of-range pages without inventing totals', () => {
         const page = ticketPage({ content: [], page: 5, totalElements: 2, first: false, last: true });
         expect(decodeTicketPage(page)).toEqual(page);
+    });
+});
+
+describe('Ticket workflow API', () => {
+    const csrf = { token: 'synthetic-current-csrf', headerName: 'X-CUSTOM-CSRF' };
+    const actions = {
+        claim: (signal?: AbortSignal) => claimTicket('42', csrf, signal),
+        status: (signal?: AbortSignal) => changeTicketStatus('42', 'IN_PROGRESS', csrf, signal),
+    };
+
+    it.each(['claim', 'status'] as const)('sends the exact %s contract with CSRF and decodes authoritative state', async (action) => {
+        fetchMock.mockResolvedValue(Response.json({ ...ticket, status: 'IN_PROGRESS', version: 9 }));
+        const controller = new AbortController();
+        await expect(actions[action](controller.signal)).resolves.toEqual({ ...ticket, status: 'IN_PROGRESS' });
+        const [path, options] = fetchMock.mock.calls[0] ?? [];
+        expect(path).toBe(`/api/tickets/42/${action}`);
+        expect(options).toMatchObject({ method: action === 'claim' ? 'POST' : 'PATCH', credentials: 'include', signal: controller.signal });
+        const headers = new Headers(options?.headers);
+        expect(headers.get(csrf.headerName)).toBe(csrf.token);
+        expect(headers.has('Authorization')).toBe(false);
+        expect(headers.has('If-Match')).toBe(false);
+        if (action === 'claim') {
+            expect(options?.body).toBeUndefined();
+            expect(headers.has('Content-Type')).toBe(false);
+        } else {
+            expect(JSON.parse(String(options?.body))).toEqual({ status: 'IN_PROGRESS' });
+            expect(headers.get('Content-Type')).toBe('application/json');
+        }
+    });
+
+    it('encodes mutation path identifiers', async () => {
+        fetchMock.mockImplementation(async () => Response.json(ticket));
+        await claimTicket('42/../auth?x=1', csrf);
+        await changeTicketStatus('42/../auth?x=1', 'RESOLVED', csrf);
+        expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+            '/api/tickets/42%2F..%2Fauth%3Fx%3D1/claim', '/api/tickets/42%2F..%2Fauth%3Fx%3D1/status',
+        ]);
+    });
+
+    it.each(['claim', 'status'] as const)('rejects malformed %s successes', async (action) => {
+        for (const payload of [null, {}, { ...ticket, assignee: {} }, { ...ticket, status: 'INVALID' }]) {
+            fetchMock.mockResolvedValueOnce(Response.json(payload));
+            await expect(actions[action]()).rejects.toBeInstanceOf(TypeError);
+        }
+        for (const response of [new Response(null, { status: 204 }), new Response('invalid JSON')]) {
+            fetchMock.mockResolvedValueOnce(response);
+            await expect(actions[action]()).rejects.toBeInstanceOf(Error);
+        }
+    });
+
+    it.each(['claim', 'status'] as const)('preserves %s failures without replay', async (action) => {
+        for (const status of [401, 403, 404, 409, 500]) {
+            fetchMock.mockClear();
+            const problem = { status, title: status === 409 ? 'Concurrent ticket update' : 'Failure', detail: 'Internal diagnostic' };
+            fetchMock.mockResolvedValueOnce(Response.json(problem, { status, headers: { 'Content-Type': 'application/problem+json' } }));
+            const request = actions[action]();
+            await expect(request).rejects.toBeInstanceOf(ApiError);
+            await expect(request).rejects.toMatchObject({ status, problem });
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        }
     });
 });
 

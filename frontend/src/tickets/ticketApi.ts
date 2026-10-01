@@ -26,3 +26,19 @@ export async function createTicket(input: CreateTicketInput, csrf: CsrfMetadata,
         ...(signal ? { signal } : {}),
     }));
 }
+
+export async function claimTicket(id: string, csrf: CsrfMetadata, signal?: AbortSignal): Promise<Ticket> {
+    return decodeTicket(await apiRequest(`/api/tickets/${encodeURIComponent(id)}/claim`, {
+        method: 'POST', headers: { [csrf.headerName]: csrf.token },
+        ...(signal ? { signal } : {}),
+    }));
+}
+
+export async function changeTicketStatus(id: string, status: Ticket['status'], csrf: CsrfMetadata, signal?: AbortSignal): Promise<Ticket> {
+    return decodeTicket(await apiRequest(`/api/tickets/${encodeURIComponent(id)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', [csrf.headerName]: csrf.token },
+        body: JSON.stringify({ status }),
+        ...(signal ? { signal } : {}),
+    }));
+}
