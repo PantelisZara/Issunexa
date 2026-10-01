@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { ticketPage } from '../test/ticketFixtures';
 
 const fetchMock = vi.fn<typeof fetch>();
 const csrfA = { token: 'synthetic-A', headerName: 'X-TEST-CSRF' };
@@ -35,11 +36,17 @@ async function fillLogin() {
     return user;
 }
 
-beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
+beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', (path: RequestInfo | URL, options?: RequestInit) => {
+        if (String(path).startsWith('/api/tickets?')) return Promise.resolve(Response.json(ticketPage()));
+        return fetchMock(path, options);
+    });
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe('authentication routes and form', () => {
-    it.each(['/', '/app'])('redirects anonymous %s to an accessible login form', async (path) => {
+    it.each(['/', '/app', '/app/tickets'])('redirects anonymous %s to an accessible login form', async (path) => {
         anonymous();
         renderApp(path);
         const main = screen.getByRole('main');
@@ -67,14 +74,16 @@ describe('authentication routes and form', () => {
         expect(screen.getByRole('heading', { name: 'Checking your session' })).toBeVisible();
         expect(screen.getByLabelText('Current route')).toHaveTextContent('/app');
         expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Tickets' })).not.toBeInTheDocument();
     });
 
-    it.each(['/app', '/login'])('restores the backend session from %s and renders account information', async (path) => {
+    it.each(['/app', '/login', '/app/tickets'])('restores the backend session from %s and renders account information', async (path) => {
         fetchMock.mockResolvedValueOnce(Response.json(csrfB)).mockResolvedValueOnce(Response.json(account));
         renderApp(path);
         expect(await screen.findByText('Welcome, Alice')).toBeVisible();
         expect(screen.getByText('Role: REQUESTER')).toBeVisible();
-        expect(screen.getByLabelText('Current route')).toHaveTextContent('/app');
+        expect(await screen.findByRole('heading', { name: 'Tickets' })).toBeVisible();
+        expect(screen.getByLabelText('Current route')).toHaveTextContent('/app/tickets');
     });
 
     it('preserves not-found routing and keyboard navigation back into authentication', async () => {
@@ -140,7 +149,8 @@ describe('authentication routes and form', () => {
         const user = await fillLogin();
         await user.click(screen.getByRole('button', { name: 'Sign in' }));
         expect(await screen.findByText('Welcome, Alice')).toBeVisible();
-        expect(screen.getByLabelText('Current route')).toHaveTextContent('/app');
+        expect(await screen.findByRole('heading', { name: 'Tickets' })).toBeVisible();
+        expect(screen.getByLabelText('Current route')).toHaveTextContent('/app/tickets');
         await user.click(screen.getByRole('button', { name: 'Sign out' }));
         expect(await screen.findByRole('heading', { name: 'Sign in to Issunexa' })).toBeVisible();
         expect(screen.getByLabelText('Current route')).toHaveTextContent('/login');

@@ -59,7 +59,7 @@ docker compose down
 
 ## Frontend development
 
-The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. It provides session login, logout, reload restoration, and a protected `/app` page showing the current account. Ticket screens are not implemented yet. Official logo assets will be integrated when supplied; the shell uses plain text branding.
+The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. It provides session login, logout, reload restoration, and a protected Ticket workspace at `/app/tickets`; `/app` redirects there. The account and sign-out controls remain available above the workspace. Official logo assets will be integrated when supplied; the shell uses plain text branding.
 
 Start the backend on port **8080** using the Docker workflow above or the Maven workflow below. Then, in another terminal:
 
@@ -88,6 +88,8 @@ The build uses stable TypeScript 7 through the `@typescript/native` npm alias. E
 API calls use `src/api/apiRequest.ts` with relative `/api/...` paths and session credentials. JSON is returned as `unknown` unless the caller supplies a narrowing decoder; empty success responses return `undefined`. HTTP failures become `ApiError` with optional structured Problem Details. Authentication decoders validate the CSRF and current-session responses. No frontend environment variables are needed; never put secrets in browser-visible `VITE_` variables.
 
 The root routes through protected `/app`; anonymous users reach `/login`. Bootstrap fetches CSRF before probing the session. Login obtains fresh CSRF before loading the authenticated account; logout invalidates the backend session before preparing fresh anonymous CSRF. Tokens and account state stay in memory, and the browser manages its session cookie. A failed post-login refresh offers a session retry without replaying credentials; a failed refresh after successful logout keeps the user signed out. Use an internally provisioned account: registration, password reset and demo accounts are not provided.
+
+The Ticket workspace uses `GET /api/tickets` with runtime validation of Ticket fields, nullable assignees and explicit page metadata. Applied search, status, priority, category, sort, page and size live in the URL, so links and browser navigation restore the list controls. Search runs on explicit submission; filter, search, sort and size changes reset the zero-based page to `0`. Clear filters restores all defaults and clears search. Invalid or repeated URL parameters fall back to supported defaults before requests; unsupported URL keys are ignored. The backend owns visibility, filtering, sorting and totals; React displays the returned page without reprocessing Tickets. Loading, empty and safe error states include recovery controls. A Ticket request returning `401` clears the authenticated account and stale CSRF metadata, redirects to login and reacquires CSRF on the next explicit login attempt. Ticket details and mutations are not part of this workspace.
 
 ## Non-Docker prerequisites
 

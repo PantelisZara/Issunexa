@@ -31,6 +31,7 @@ function Consumer() {
         <button onClick={() => { void auth.retry(); }}>Retry</button>
         <button disabled={auth.pending} onClick={() => { void auth.login('alice@example.test', 'synthetic test password'); }}>Login</button>
         <button disabled={auth.pending} onClick={() => { void auth.logout(); }}>Logout</button>
+        <button onClick={auth.expireSession}>Expire session</button>
     </>;
 }
 
@@ -62,6 +63,21 @@ describe('authentication lifecycle', () => {
         renderProvider();
         await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('unauthenticated'));
         expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    });
+
+    it('clears expired account and CSRF, acquiring fresh CSRF only on explicit login', async () => {
+        api.getCsrf.mockResolvedValueOnce(tokenA).mockResolvedValue(tokenB);
+        renderProvider();
+        await screen.findByText('Alice');
+        await userEvent.click(screen.getByRole('button', { name: 'Expire session' }));
+        expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('unauthenticated');
+        expect(screen.getByRole('alert')).toHaveTextContent('Your session expired');
+        expect(api.getCsrf).toHaveBeenCalledTimes(1);
+        expect(api.login).not.toHaveBeenCalled();
+        await userEvent.click(screen.getByRole('button', { name: 'Login' }));
+        expect(api.login).toHaveBeenCalledWith('alice@example.test', 'synthetic test password', tokenB);
+        expect(await screen.findByText('Alice')).toBeVisible();
     });
 
     it.each(['csrf', 'session'])('surfaces %s bootstrap failure and recovers on explicit retry', async (stage) => {

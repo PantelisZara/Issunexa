@@ -1,0 +1,63 @@
+.account-panel {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #d9dde5;
+}
+
+.account-panel p { margin: 0; }
+.account-panel button { margin-left: auto; }
+.account-panel .error-message { flex-basis: 100%; }
+
+.ticket-controls, .ticket-results {
+    padding: clamp(1rem, 3vw, 1.5rem);
+    background: #fff;
+    border: 1px solid #d9dde5;
+    border-radius: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.ticket-search {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.ticket-search .ticket-field { flex: 1 1 15rem; }
+.ticket-field { display: grid; gap: 0.4rem; min-width: 0; }
+.ticket-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+    gap: 1rem;
+    margin: 1.25rem 0;
+}
+
+.ticket-field select {
+    width: 100%;
+    min-width: 0;
+    padding: 0.6rem 0.75rem;
+    font: inherit;
+    color: inherit;
+    background: #fff;
+    border: 1px solid #697386;
+    border-radius: 0.25rem;
+}
+
+.secondary-button { color: #373f75; background: #fff; }
+.secondary-button:hover:not(:disabled) { background: #eef0f7; }
+.ticket-table-scroll { overflow-x: auto; }
+.ticket-table { width: 100%; border-collapse: collapse; text-align: left; }
+.ticket-table th, .ticket-table td { padding: 1rem 0.75rem; border-bottom: 1px solid #d9dde5; }
+.ticket-table thead { background: #f7f8fa; }
+.ticket-table tbody th { min-width: 12rem; }
+.ticket-table td { min-width: 7rem; }
+.ticket-table time { display: block; min-width: 10rem; }
+.ticket-empty { padding: 1rem 0; }
+.ticket-empty h2 { margin-top: 0; font-size: 1.25rem; }
+.ticket-pagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-top: 1.5rem; }
+.ticket-pagination button:disabled { cursor: default; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

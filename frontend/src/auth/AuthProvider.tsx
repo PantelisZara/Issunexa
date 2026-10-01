@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../api/ApiError';
 import { AuthContext } from './AuthContext';
 import * as authApi from './authApi';
@@ -27,6 +27,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const csrf = useRef<CsrfMetadata | undefined>(undefined);
     const busy = useRef(false);
     const initialRequest = useRef<ReturnType<typeof readSession> | undefined>(undefined);
+
+    const expireSession = useCallback(() => {
+        csrf.current = undefined;
+        setState({ status: 'unauthenticated', message: 'Your session expired. Please sign in again.' });
+    }, []);
 
     useEffect(() => {
         let active = true;
@@ -152,5 +157,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    return <AuthContext value={{ state, pending, login, logout, retry }}>{children}</AuthContext>;
+    return <AuthContext value={{ state, pending, login, logout, retry, expireSession }}>{children}</AuthContext>;
 }
