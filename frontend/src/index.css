@@ -70,3 +70,62 @@ p {
 .skip-link:focus {
     top: 0.5rem;
 }
+
+button, input {
+    font: inherit;
+}
+
+.auth-panel {
+    max-width: 30rem;
+    margin: 0 auto;
+    padding: clamp(1.25rem, 4vw, 2rem);
+    background: #fff;
+    border: 1px solid #d9dde5;
+    border-radius: 0.5rem;
+}
+
+.auth-panel h1 {
+    font-size: 1.75rem;
+}
+
+.form-field {
+    display: grid;
+    gap: 0.4rem;
+    margin: 1.25rem 0;
+}
+
+label {
+    font-weight: 600;
+}
+
+input {
+    min-width: 0;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #697386;
+    border-radius: 0.25rem;
+    color: inherit;
+    background: #fff;
+}
+
+button {
+    padding: 0.65rem 1rem;
+    border: 1px solid #373f75;
+    border-radius: 0.25rem;
+    background: #373f75;
+    color: #fff;
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    background: #272e58;
+}
+
+button:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.error-message {
+    color: #9b2430;
+}

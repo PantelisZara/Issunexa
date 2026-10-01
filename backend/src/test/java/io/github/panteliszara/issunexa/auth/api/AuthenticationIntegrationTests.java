@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -119,6 +120,42 @@ class AuthenticationIntegrationTests {
         mockMvc.perform(get("/swagger-ui/index.html"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Swagger UI")));
+    }
+
+    @Test
+    void rejectsAnonymousSessionLookupWithProblemDetails() throws Exception {
+        assertUnauthenticated(mockMvc.perform(get("/api/auth/session")));
+    }
+
+    @ParameterizedTest
+    @EnumSource(UserRole.class)
+    void exposesOnlyTheAuthenticatedPersistedAccountIgnoringClientIdentity(UserRole role) throws Exception {
+        UserAccount account = userAccountService.createUser("  Session@Example.COM  ", "Session user", PASSWORD, role);
+        MockHttpSession session = login(csrf(null), "  SESSION@example.com  ");
+
+        MvcResult result = mockMvc.perform(get("/api/auth/session").session(session)
+                        .param("email", EMAIL).param("id", "999").header("X-User-Email", EMAIL))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
+                .andExpect(jsonPath("$.id").value(account.getId()))
+                .andExpect(jsonPath("$.email").value("session@example.com"))
+                .andExpect(jsonPath("$.displayName").value("Session user"))
+                .andExpect(jsonPath("$.role").value(role.name())).andReturn();
+        Map<String, Object> body = JsonPath.read(result.getResponse().getContentAsString(), "$");
+        assertThat(body).containsOnlyKeys("id", "email", "displayName", "role");
+        assertThat(result.getResponse().getContentAsString()).doesNotContain(PASSWORD, account.getPasswordHash());
+        assertThat(body.values()).doesNotContain(session.getId());
+    }
+
+    @Test
+    void failsSafelyIfAnAuthenticatedAccountNoLongerExists() throws Exception {
+        MockHttpSession session = login(csrf(null), EMAIL);
+        userAccountRepository.deleteAll();
+        userAccountRepository.flush();
+
+        assertProblem(mockMvc.perform(get("/api/auth/session").session(session)), 500,
+                "Internal server error", "The current session could not be resolved.");
     }
 
     @ParameterizedTest
@@ -332,6 +369,7 @@ class AuthenticationIntegrationTests {
         assertThat(context.getAuthentication()).isNull();
         assertThat(logout.getRequest().getSession(false)).isNull();
         assertUnauthenticated(mockMvc.perform(get("/api/tickets").session(session)));
+        assertUnauthenticated(mockMvc.perform(get("/api/auth/session").session(session)));
         CsrfState afterLogout = csrf(null);
         assertThat(afterLogout.session().getId()).isNotEqualTo(formerSessionId);
         assertForbidden(mockMvc.perform(loginRequest(afterLogout.session(), EMAIL, PASSWORD)

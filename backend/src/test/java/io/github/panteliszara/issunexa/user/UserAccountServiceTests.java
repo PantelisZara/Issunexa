@@ -12,6 +12,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -34,6 +36,28 @@ class UserAccountServiceTests {
     @BeforeEach
     void setUp() {
         userAccountService = new UserAccountService(userAccountRepository, passwordEncoder);
+    }
+
+    @Test
+    void resolvesTheCanonicalAuthenticatedIdentityWithoutEncodingOrSaving() {
+        UserAccount account = new UserAccount("alice@example.com", "Alice", "test-hash", UserRole.AGENT);
+        when(userAccountRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(account));
+
+        assertThat(userAccountService.getAuthenticatedAccount("  Alice@Example.COM  ")).isSameAs(account);
+
+        verify(userAccountRepository).findByEmail("alice@example.com");
+        verifyNoMoreInteractions(userAccountRepository);
+        verifyNoInteractions(passwordEncoder);
+    }
+
+    @Test
+    void failsSafelyWhenTheAuthenticatedAccountIsMissing() {
+        when(userAccountRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userAccountService.getAuthenticatedAccount("missing@example.com"))
+                .isInstanceOf(AuthenticatedAccountNotFoundException.class)
+                .hasMessage("Authenticated user account could not be resolved.");
+        verifyNoInteractions(passwordEncoder);
     }
 
     @ParameterizedTest

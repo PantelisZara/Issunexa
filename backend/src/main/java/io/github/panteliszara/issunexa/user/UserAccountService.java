@@ -17,6 +17,12 @@ public class UserAccountService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    @Transactional(readOnly = true)
+    public UserAccount getAuthenticatedAccount(String principalEmail) {
+        return userAccountRepository.findByEmail(UserAccount.normalizeEmail(principalEmail))
+                .orElseThrow(AuthenticatedAccountNotFoundException::new);
+    }
+
     @Transactional
     public UserAccount createUser(String email, String displayName, String rawPassword, UserRole role) {
         if (rawPassword == null || rawPassword.isBlank()) {

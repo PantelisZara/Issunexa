@@ -3,6 +3,7 @@ package io.github.panteliszara.issunexa.shared.web;
 import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
 import io.github.panteliszara.issunexa.ticket.TicketAlreadyAssignedException;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
+import io.github.panteliszara.issunexa.user.AuthenticatedAccountNotFoundException;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -30,6 +31,16 @@ import java.util.stream.Stream;
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final URI ABOUT_BLANK = URI.create("about:blank");
+
+    @ExceptionHandler(AuthenticatedAccountNotFoundException.class)
+    public ProblemDetail handleMissingAuthenticatedAccount(AuthenticatedAccountNotFoundException exception) {
+        logger.error("Authenticated session account lookup failed.", exception);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
+                "The current session could not be resolved.");
+        problem.setType(ABOUT_BLANK);
+        problem.setTitle("Internal server error");
+        return problem;
+    }
 
     @ExceptionHandler(AuthenticationException.class)
     public ProblemDetail handleAuthenticationFailure(AuthenticationException exception) {

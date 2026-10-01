@@ -59,7 +59,7 @@ docker compose down
 
 ## Frontend development
 
-The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. The current foundation provides a minimal shell, root/not-found routing and a JSON API boundary; authentication and Ticket screens are not implemented yet. Official logo assets will be integrated when supplied; the shell uses plain text branding.
+The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. It provides session login, logout, reload restoration, and a protected `/app` page showing the current account. Ticket screens are not implemented yet. Official logo assets will be integrated when supplied; the shell uses plain text branding.
 
 Start the backend on port **8080** using the Docker workflow above or the Maven workflow below. Then, in another terminal:
 
@@ -85,7 +85,9 @@ The separate `Frontend CI` GitHub Actions workflow runs `npm ci`, lint, tests an
 
 The build uses stable TypeScript 7 through the `@typescript/native` npm alias. ESLint needs the older compiler API, so `typescript` aliases Microsoft's `@typescript/typescript6` compatibility package, following the [official side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60). The `tsc` build command still runs TypeScript 7.
 
-API calls use `src/api/apiRequest.ts` with relative `/api/...` paths and session credentials. JSON is returned as `unknown` unless the caller supplies a narrowing decoder; empty success responses return `undefined`. HTTP failures become `ApiError` with optional structured Problem Details. Callers can supply headers for future CSRF support, but no authentication workflow is implemented. No frontend environment variables are needed; never put secrets in browser-visible `VITE_` variables.
+API calls use `src/api/apiRequest.ts` with relative `/api/...` paths and session credentials. JSON is returned as `unknown` unless the caller supplies a narrowing decoder; empty success responses return `undefined`. HTTP failures become `ApiError` with optional structured Problem Details. Authentication decoders validate the CSRF and current-session responses. No frontend environment variables are needed; never put secrets in browser-visible `VITE_` variables.
+
+The root routes through protected `/app`; anonymous users reach `/login`. Bootstrap fetches CSRF before probing the session. Login obtains fresh CSRF before loading the authenticated account; logout invalidates the backend session before preparing fresh anonymous CSRF. Tokens and account state stay in memory, and the browser manages its session cookie. A failed post-login refresh offers a session retry without replaying credentials; a failed refresh after successful logout keeps the user signed out. Use an internally provisioned account: registration, password reset and demo accounts are not provided.
 
 ## Non-Docker prerequisites
 
@@ -120,6 +122,7 @@ Authentication uses email, password and an HTTP session cookie. Accounts are pro
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/auth/csrf` | Public endpoint returning `token` and `headerName`; responses must not be cached |
+| GET | `/api/auth/session` | Authenticated account's `id`, canonical `email`, `displayName` and persisted `role`; not cached |
 | POST | `/api/auth/login` | Accepts JSON `email` and `password`; returns `204` on success |
 | POST | `/api/auth/logout` | Invalidates the authenticated session; returns `204` on success |
 

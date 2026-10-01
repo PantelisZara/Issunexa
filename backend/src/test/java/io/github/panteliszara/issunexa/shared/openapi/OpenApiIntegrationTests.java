@@ -43,7 +43,7 @@ class OpenApiIntegrationTests {
         Map<String, Object> paths = api.read("$.paths");
         assertThat(paths).containsOnlyKeys("/api/tickets", "/api/tickets/{id}", "/api/tickets/{id}/status",
                 "/api/tickets/{id}/claim", "/api/tickets/{ticketId}/comments", "/api/tickets/{ticketId}/history",
-                "/api/auth/csrf", "/api/auth/login", "/api/auth/logout");
+                "/api/auth/csrf", "/api/auth/login", "/api/auth/logout", "/api/auth/session");
         Map<String, Object> collection = api.read("$.paths['/api/tickets']");
         assertThat(collection).containsOnlyKeys("get", "post");
         Map<String, Object> ticket = api.read("$.paths['/api/tickets/{id}']");
@@ -203,6 +203,15 @@ class OpenApiIntegrationTests {
     @Test
     void documentsAuthenticationOperationsAndSafeSchemas() throws Exception {
         DocumentContext api = apiDocs();
+        Map<String, Object> sessionPath = api.read("$.paths['/api/auth/session']");
+        assertThat(sessionPath).containsOnlyKeys("get");
+        assertResponses(api, "$.paths['/api/auth/session'].get", "200", "AuthenticatedSessionResponse", "401");
+        Map<String, Object> sessionOperation = api.read("$.paths['/api/auth/session'].get");
+        assertThat(sessionOperation).doesNotContainKeys("requestBody", "parameters");
+        Map<String, Object> sessionProperties = api.read("$.components.schemas.AuthenticatedSessionResponse.properties");
+        assertThat(sessionProperties).containsOnlyKeys("id", "email", "displayName", "role");
+        List<String> roles = api.read("$.components.schemas.AuthenticatedSessionResponse.properties.role.enum");
+        assertThat(roles).containsExactlyInAnyOrder("REQUESTER", "AGENT", "ADMIN");
         Map<String, Object> csrfPath = api.read("$.paths['/api/auth/csrf']");
         Map<String, Object> loginPath = api.read("$.paths['/api/auth/login']");
         Map<String, Object> logoutPath = api.read("$.paths['/api/auth/logout']");
@@ -250,7 +259,7 @@ class OpenApiIntegrationTests {
                 "$.paths['/api/tickets/{id}/claim'].post",
                 "$.paths['/api/tickets/{ticketId}/comments'].get", "$.paths['/api/tickets/{ticketId}/comments'].post",
                 "$.paths['/api/tickets/{ticketId}/history'].get",
-                "$.paths['/api/auth/logout'].post")) {
+                "$.paths['/api/auth/logout'].post", "$.paths['/api/auth/session'].get")) {
             List<Map<String, Object>> security = api.read(operation + ".security");
             assertThat(security).containsExactly(Map.of("sessionAuth", List.of()));
         }

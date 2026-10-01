@@ -1,5 +1,7 @@
 package io.github.panteliszara.issunexa.auth.api;
 
+import io.github.panteliszara.issunexa.user.UserAccount;
+import io.github.panteliszara.issunexa.user.UserAccountService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -31,6 +33,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.Principal;
+
 @RestController
 @RequestMapping("/api/auth")
 @Tag(name = "Authentication")
@@ -41,16 +45,38 @@ public class AuthenticationController {
     private final SecurityContextHolderStrategy securityContextHolderStrategy;
     private final SecurityContextRepository securityContextRepository;
     private final LogoutHandler logoutHandler;
+    private final UserAccountService userAccountService;
 
     public AuthenticationController(AuthenticationManager authenticationManager,
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
             SecurityContextHolderStrategy securityContextHolderStrategy,
-            SecurityContextRepository securityContextRepository, LogoutHandler logoutHandler) {
+            SecurityContextRepository securityContextRepository, LogoutHandler logoutHandler,
+            UserAccountService userAccountService) {
         this.authenticationManager = authenticationManager;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
         this.securityContextHolderStrategy = securityContextHolderStrategy;
         this.securityContextRepository = securityContextRepository;
         this.logoutHandler = logoutHandler;
+        this.userAccountService = userAccountService;
+    }
+
+    @GetMapping("/session")
+    @Operation(summary = "Get the current authenticated session",
+            description = "Returns the authenticated account's ID, canonical email, display name and persisted role.")
+    @SecurityRequirement(name = "sessionAuth")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Current authenticated account. Must not be cached.",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = AuthenticatedSessionResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required.",
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public ResponseEntity<AuthenticatedSessionResponse> session(@Parameter(hidden = true) Principal principal) {
+        UserAccount account = userAccountService.getAuthenticatedAccount(principal.getName());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new AuthenticatedSessionResponse(account.getId(), account.getEmail(),
+                        account.getDisplayName(), account.getRole()));
     }
 
     @GetMapping("/csrf")
