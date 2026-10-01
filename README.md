@@ -81,6 +81,8 @@ npm run build
 
 `npm test` runs Vitest once; `npm run test:watch` watches for changes. The production build type-checks before writing `dist/`. Commit the npm lockfile when reviewing changes; generated dependencies, build output and coverage stay ignored.
 
+The separate `Frontend CI` GitHub Actions workflow runs `npm ci`, lint, tests and the production build on Node 24.21.0 for pushes and pull requests targeting `master`, and supports manual runs. It does not require backend services.
+
 The build uses stable TypeScript 7 through the `@typescript/native` npm alias. ESLint needs the older compiler API, so `typescript` aliases Microsoft's `@typescript/typescript6` compatibility package, following the [official side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60). The `tsc` build command still runs TypeScript 7.
 
 API calls use `src/api/apiRequest.ts` with relative `/api/...` paths and session credentials. JSON is returned as `unknown` unless the caller supplies a narrowing decoder; empty success responses return `undefined`. HTTP failures become `ApiError` with optional structured Problem Details. Callers can supply headers for future CSRF support, but no authentication workflow is implemented. No frontend environment variables are needed; never put secrets in browser-visible `VITE_` variables.
