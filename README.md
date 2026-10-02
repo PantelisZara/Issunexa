@@ -59,7 +59,11 @@ docker compose down
 
 ## Frontend development
 
-The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. It provides session login, logout, reload restoration, and a protected Ticket workspace at `/app/tickets`; `/app` redirects there. Authenticated users can create Tickets at `/app/tickets/new` and view details at `/app/tickets/:id`. The account and sign-out controls remain available across Ticket pages. Official logo assets will be integrated when supplied; the shell uses plain text branding.
+The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. It provides session login, logout, reload restoration, and a protected Ticket workspace at `/app/tickets`; `/app` redirects there. Authenticated users can create Tickets at `/app/tickets/new` and view details at `/app/tickets/:id`. The branded application header keeps Tickets navigation, account identity and sign-out available across Ticket pages.
+
+The interface uses a system-font stack and a small CSS token set in `src/index.css`: neutral surfaces, the supplied purple accent, shared fields/actions and explicit feedback colors. Ticket-specific layouts live in `src/tickets/tickets.css`. The same native Ticket table adapts into labelled rows on narrow screens, without a second data path. Comments and lifecycle history sit alongside each other where space permits and stack on smaller screens. Focus indicators, labelled controls, textual status/priority values and reduced-motion styles are shared across pages.
+
+Original supplied branding is preserved in `frontend/branding/`; browser assets are unchanged copies in `frontend/public/branding/`. The full SVG wordmark appears on login and the desktop application header; the supplied X mark is used in compact headers and the favicon. See [the branding inventory](frontend/branding/README.md) for variant selection and actual icon dimensions. The web manifest supplies app icons; it does not add offline behavior.
 
 Start the backend on port **8080** using the Docker workflow above or the Maven workflow below. Then, in another terminal:
 

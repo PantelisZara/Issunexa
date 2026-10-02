@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,6 +35,15 @@ function renderDetail() {
 
 async function loaded() {
     await screen.findByRole('heading', { name: ticket.title, level: 1 });
+}
+
+async function expectTicketStatus(label: string) {
+    await waitFor(() => {
+        const definitions = within(screen.getByRole('region', { name: 'Ticket details' })).getAllByRole('definition');
+        const status = definitions.find((definition) => definition.previousElementSibling?.textContent === 'Status');
+        expect(status).toBeVisible();
+        expect(status?.textContent).toBe(label);
+    });
 }
 
 beforeEach(() => {
@@ -125,7 +134,7 @@ describe('Ticket workflow controls', () => {
         renderDetail();
         await loaded();
         await userEvent.click(screen.getByRole('button', { name: `Set status to ${ticketLabels[to]}` }));
-        expect(await screen.findByText(ticketLabels[to], { selector: 'dd' })).toBeVisible();
+        await expectTicketStatus(ticketLabels[to]);
         expect(screen.getByText('Alice Agent')).toBeVisible();
         expect(screen.getByRole('status')).toHaveTextContent('Ticket status updated.');
         expect(JSON.parse(String(mutationMock.mock.calls[0]?.[1]?.body))).toEqual({ status: to });
@@ -223,7 +232,7 @@ describe('Ticket workflow recovery', () => {
         expect(mutationMock).toHaveBeenCalledTimes(1);
         mutationMock.mockImplementation(async () => Response.json({ ...current, status: 'CLOSED' }));
         await userEvent.click(screen.getByRole('button', { name: 'Set status to Closed' }));
-        expect(await screen.findByText('Closed', { selector: 'dd' })).toBeVisible();
+        await expectTicketStatus('Closed');
         expect(mutationMock).toHaveBeenCalledTimes(2);
     });
 

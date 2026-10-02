@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Creator: CorelDRAW -->
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="130mm" height="130mm" style="shape-rendering:geometricPrecision; text-rendering:geometricPrecision; image-rendering:optimizeQuality; fill-rule:evenodd; clip-rule:evenodd"
+viewBox="0 0 15.5117 15.5117"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <defs>
+  <style type="text/css">
+   <![CDATA[
+    .fil1 {fill:#FEFEFE}
+    .fil2 {fill:#7D43E7}
+    .fil0 {fill:url(#id0)}
+   ]]>
+  </style>
+  <linearGradient id="id0" gradientUnits="userSpaceOnUse" x1="-0" y1="15.5117" x2="15.5117" y2="0">
+   <stop offset="0" style="stop-color:#1F1B20"/>
+   <stop offset="0.4" style="stop-color:#1F1B20"/>
+   <stop offset="1" style="stop-color:#6D6FA2"/>
+  </linearGradient>
+ </defs>
+ <g id="Layer_x0020_1">
+  <metadata id="CorelCorpID_0Corel-Layer"/>
+  <g id="_246848672">
+   <path id="_246849176" class="fil0" d="M7.75582 0c-4.28341,0 -7.75582,3.47242 -7.75582,7.75584 0,4.28347 3.47242,7.75582 7.75582,7.75582 4.28348,0 7.75588,-3.47236 7.75588,-7.75582 0,-4.28342 -3.47241,-7.75584 -7.75588,-7.75584z"/>
+   <g>
+    <polygon id="_246848840" class="fil1" points="6.15095,7.39168 1.23161,1.63044 4.62011,1.63044 7.84488,5.46668 10.9924,1.63044 14.3818,1.63044 9.50215,7.44418 14.8811,13.8812 11.6665,13.8812 7.80687,9.37123 3.92109,13.8812 0.630635,13.8812 "/>
+   </g>
+   <polygon id="_246849320" class="fil2" points="6.30772,7.39154 1.49039,1.74976 4.56453,1.74976 7.84599,5.65344 11.0488,1.74976 14.1259,1.74976 9.3465,7.44401 14.6259,13.7619 11.7215,13.7619 7.80718,9.18807 3.86639,13.7619 0.888786,13.7619 "/>
+  </g>
+ </g>
+</svg>

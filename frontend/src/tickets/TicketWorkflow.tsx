@@ -75,8 +75,8 @@ export function TicketWorkflow({ ticket, onUpdated, onRefresh }: {
             </div>
             {transitions.length === 0 && <p className="muted">This ticket has no available status transitions.</p>}
             {submitting && <p role="status">Updating ticket…</p>}
-            {notice && <p role="status">{notice}</p>}
-            {error && <p role="alert" className="error-message">{error.message}</p>}
+            {notice && <p role="status" className="success-message">{notice}</p>}
+            {error && <p role="alert" className={error.reloadRequired ? 'warning-message' : 'error-message'}>{error.message}</p>}
             {error?.reloadRequired && <button type="button" disabled={submitting || pending} onClick={onRefresh}>Refresh ticket</button>}
         </section>
     );

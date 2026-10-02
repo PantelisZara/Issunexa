@@ -42,22 +42,22 @@ export function TicketHistory({ ticketId, onNotFound }: { ticketId: string; onNo
                 <button type="button" className="secondary-button" disabled={!current} onClick={() => setQuery({ page: 0 })}>Refresh history</button>
             </div>
             <p className="muted">Newest first. Earlier activity may not have been recorded.</p>
-            {!current ? <p role="status">Loading history…</p> : 'error' in current ? <>
+            {!current ? <p className="loading-state" role="status"><span className="loading-mark" aria-hidden="true" />Loading history…</p> : 'error' in current ? <>
                 <p role="alert" className="error-message">{current.error}</p>
                 <button type="button" onClick={() => setQuery({ ...query })}>Retry history</button>
             </> : <>
                 {current.data.content.length === 0 ? <p>No lifecycle events recorded on this page.</p> : (
-                    <ol className="ticket-activity-list" aria-label="History events">
+                    <ol className="ticket-activity-list ticket-history-list" aria-label="History events">
                         {current.data.content.map((entry) => <li key={entry.id}>
                             <p>{description(entry)}</p>
-                            <p className="muted">By {entry.actor.displayName} · <time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString()}</time></p>
+                            <p className="ticket-history-actor">By {entry.actor.displayName} · <time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString()}</time></p>
                         </li>)}
                     </ol>
                 )}
                 <nav className="ticket-pagination" aria-label="History pagination">
-                    <button type="button" disabled={current.data.first} onClick={() => setQuery({ page: current.data.page - 1 })}>Previous history</button>
+                    <button type="button" className="secondary-button" disabled={current.data.first} onClick={() => setQuery({ page: current.data.page - 1 })}>Previous history</button>
                     <span>{current.data.totalPages === 0 ? 'No history pages' : `Page ${current.data.page + 1} of ${current.data.totalPages}`} · {current.data.totalElements} events</span>
-                    <button type="button" disabled={current.data.last} onClick={() => setQuery({ page: current.data.page + 1 })}>Next history</button>
+                    <button type="button" className="secondary-button" disabled={current.data.last} onClick={() => setQuery({ page: current.data.page + 1 })}>Next history</button>
                 </nav>
             </>}
         </section>

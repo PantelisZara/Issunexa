@@ -53,6 +53,7 @@ describe('authentication routes and form', () => {
         expect(await within(main).findByRole('heading', { name: 'Sign in to Issunexa', level: 1 })).toBeVisible();
         expect(screen.getByLabelText('Current route')).toHaveTextContent('/login');
         expect(screen.getByRole('banner')).toBeVisible();
+        expect(screen.queryByRole('navigation', { name: 'Primary navigation' })).not.toBeInTheDocument();
         expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
         expect(screen.getByLabelText('Email')).toHaveAttribute('type', 'email');
         expect(screen.getByLabelText('Email')).toHaveAttribute('autocomplete', 'username');
@@ -86,6 +87,30 @@ describe('authentication routes and form', () => {
         expect(screen.getByLabelText('Current route')).toHaveTextContent('/app/tickets');
     });
 
+    it('keeps the named Tickets navigation and account controls available across protected pages, with keyboard activation', async () => {
+        fetchMock.mockResolvedValueOnce(Response.json(csrfB)).mockResolvedValueOnce(Response.json(account));
+        renderApp('/app/tickets/new');
+        await screen.findByRole('heading', { name: 'Create ticket' });
+        const navigation = screen.getByRole('navigation', { name: 'Primary navigation' });
+        const ticketsLink = within(navigation).getByRole('link', { name: 'Tickets' });
+        expect(within(navigation).getAllByRole('link')).toHaveLength(1);
+        expect(ticketsLink).toHaveAttribute('aria-current', 'page');
+        const currentAccount = within(screen.getByRole('banner')).getByRole('region', { name: 'Current account' });
+        expect(within(currentAccount).getByText('Welcome, Alice')).toBeVisible();
+        expect(within(currentAccount).getByText('Role: REQUESTER')).toBeVisible();
+        expect(within(currentAccount).getByRole('button', { name: 'Sign out' })).toBeEnabled();
+        const user = userEvent.setup();
+        await user.tab();
+        expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveFocus();
+        await user.tab();
+        expect(screen.getByRole('link', { name: 'Issunexa home' })).toHaveFocus();
+        await user.tab();
+        expect(ticketsLink).toHaveFocus();
+        await user.keyboard('{Enter}');
+        expect(await screen.findByRole('heading', { name: 'Tickets' })).toBeVisible();
+        expect(screen.getByLabelText('Current route')).toHaveTextContent('/app/tickets');
+    });
+
     it('preserves not-found routing and keyboard navigation back into authentication', async () => {
         anonymous();
         renderApp('/missing');
@@ -115,6 +140,8 @@ describe('authentication routes and form', () => {
         const user = await fillLogin();
         await user.click(screen.getByRole('button', { name: 'Sign in' }));
         expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email or password.');
+        expect(screen.getByLabelText('Email')).toHaveAccessibleDescription('Invalid email or password.');
+        expect(screen.getByLabelText('Password')).toHaveAccessibleDescription('Invalid email or password.');
         expect(screen.getByLabelText('Password')).toHaveValue('');
         expect(screen.queryByText(/Internal details/)).not.toBeInTheDocument();
         expect(screen.getByLabelText('Current route')).toHaveTextContent('/login');

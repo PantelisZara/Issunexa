@@ -341,6 +341,25 @@ describe('Ticket route integration', () => {
         expect(new URL(String(request), 'http://localhost').searchParams.get('page')).toBe('2');
     });
 
+    it('opens a Ticket title with the keyboard and preserves the list query on keyboard return', async () => {
+        renderAt(listUrl);
+        const titleLink = await screen.findByRole('link', { name: ticket.title });
+        const user = userEvent.setup();
+        for (let step = 0; step < 16 && document.activeElement !== titleLink; step++) await user.tab();
+        expect(titleLink).toHaveFocus();
+        await user.keyboard('{Enter}');
+        expect(await screen.findByRole('heading', { name: ticket.title })).toBeVisible();
+        expect(screen.getByLabelText('Current URL')).toHaveTextContent(`/app/tickets/${ticket.id}`);
+        const backLink = screen.getByRole('link', { name: 'Back to tickets' });
+        for (let step = 0; step < 12 && document.activeElement !== backLink; step++) await user.tab();
+        expect(backLink).toHaveFocus();
+        await user.keyboard('{Enter}');
+        await screen.findByRole('table');
+        expect(screen.getByLabelText('Current URL')).toHaveTextContent(listUrl);
+        expect(screen.getByRole('searchbox')).toHaveValue('printer');
+        expect(screen.getByLabelText('Category')).toHaveValue('INCIDENT');
+    });
+
     it('opens creation from the workspace, preserves cancel and success return destinations, and logs out', async () => {
         renderAt(listUrl);
         const user = userEvent.setup();

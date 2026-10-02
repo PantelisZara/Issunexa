@@ -11,5 +11,5 @@ export function AuthStatus() {
             </section>
         );
     }
-    return <section className="auth-panel" role="status"><h1>Checking your session</h1><p>Please wait…</p></section>;
+    return <section className="auth-panel loading-state" role="status"><h1>Checking your session</h1><p><span className="loading-mark" aria-hidden="true" />Please wait…</p></section>;
 }

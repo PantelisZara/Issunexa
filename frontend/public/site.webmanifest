@@ -1,0 +1,12 @@
+{
+    "name": "Issunexa — Issue & Service Management",
+    "short_name": "Issunexa",
+    "start_url": "/app/tickets",
+    "display": "standalone",
+    "background_color": "#F6F7FA",
+    "theme_color": "#7D43E7",
+    "icons": [
+        { "src": "/branding/issunexa-icon-192.png", "sizes": "193x193", "type": "image/png", "purpose": "any" },
+        { "src": "/branding/issunexa-icon-512.png", "sizes": "513x513", "type": "image/png", "purpose": "any" }
+    ]
+}

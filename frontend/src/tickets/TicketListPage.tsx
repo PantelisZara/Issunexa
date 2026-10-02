@@ -6,6 +6,7 @@ import { getTickets } from './ticketApi';
 import { readTicketQuery, serializeTicketQuery } from './ticketQuery';
 import { ticketCategories, ticketLabels as labels, ticketPriorities, ticketStatuses, type TicketPage, type TicketQuery } from './ticketTypes';
 import './tickets.css';
+import { TicketBadge } from './TicketBadge';
 
 type Result = { attempt: number } & ({ status: 'success'; data: TicketPage } | { status: 'error'; message: string });
 
@@ -29,15 +30,19 @@ function TicketControls({ query, change, reset }: {
 
     return (
         <div className="ticket-controls">
-            <form className="ticket-search" onSubmit={submit} role="search" aria-label="Search tickets">
-                <div className="ticket-field">
-                    <label htmlFor="ticket-search">Search tickets</label>
-                    <input id="ticket-search" type="search" maxLength={100} placeholder="Title or description"
-                        value={search} onChange={(event) => setSearch(event.target.value)} />
-                </div>
-                <button type="submit">Search</button>
-            </form>
-            <div className="ticket-filters">
+            <div className="ticket-control-top">
+                <form className="ticket-search" onSubmit={submit} role="search" aria-label="Search tickets">
+                    <div className="ticket-field">
+                        <label htmlFor="ticket-search">Search tickets</label>
+                        <input id="ticket-search" type="search" maxLength={100} placeholder="Title or description"
+                            value={search} onChange={(event) => setSearch(event.target.value)} />
+                    </div>
+                    <button type="submit">Search</button>
+                </form>
+                <button type="button" className="secondary-button" onClick={() => { setSearch(''); reset(); }}>Clear filters</button>
+            </div>
+            <fieldset className="ticket-filters">
+                <legend className="visually-hidden">Filter and sort tickets</legend>
                 {([
                     ['status', 'Status', ticketStatuses], ['priority', 'Priority', ticketPriorities],
                     ['category', 'Category', ticketCategories],
@@ -73,8 +78,7 @@ function TicketControls({ query, change, reset }: {
                         ))}
                     </select>
                 </div>
-            </div>
-            <button type="button" className="secondary-button" onClick={() => { setSearch(''); reset(); }}>Clear filters</button>
+            </fieldset>
         </div>
     );
 }
@@ -84,14 +88,14 @@ function TicketResults({ data, navigate }: { data: TicketPage; navigate: (page: 
     const ticketListUrl = `${location.pathname}${location.search}`;
     return (
         <>
-            <p role="status">{data.totalElements} {data.totalElements === 1 ? 'ticket' : 'tickets'}</p>
+            <p className="ticket-result-count" role="status">{data.totalElements} {data.totalElements === 1 ? 'ticket' : 'tickets'}</p>
             {data.content.length === 0 ? (
                 <div className="ticket-empty">
                     <h2>No tickets found</h2>
-                    <p>Try changing or clearing filters, or return to a previous page.</p>
+                    <p>Create a ticket, adjust the filters, or return to a previous page.</p>
                 </div>
             ) : (
-                <div className="ticket-table-scroll" role="region" aria-label="Ticket list" tabIndex={0}>
+                <div className="ticket-list" role="region" aria-label="Ticket list">
                     <table className="ticket-table">
                         <caption className="visually-hidden">Tickets matching the current search and filters</caption>
                         <thead><tr>
@@ -101,18 +105,20 @@ function TicketResults({ data, navigate }: { data: TicketPage; navigate: (page: 
                         <tbody>{data.content.map((ticket) => (
                             <tr key={ticket.id}>
                                 <th scope="row"><Link to={`/app/tickets/${ticket.id}`} state={{ ticketListUrl }}>{ticket.title}</Link></th>
-                                <td>{labels[ticket.status]}</td><td>{labels[ticket.priority]}</td><td>{labels[ticket.category]}</td>
-                                <td>{ticket.assignee?.displayName ?? 'Unassigned'}</td>
-                                <td><time dateTime={ticket.createdAt}>{new Date(ticket.createdAt).toLocaleString()}</time></td>
+                                <td data-label="Status"><TicketBadge kind="status" value={ticket.status} /></td>
+                                <td data-label="Priority"><TicketBadge kind="priority" value={ticket.priority} /></td>
+                                <td data-label="Category"><TicketBadge kind="category" value={ticket.category} /></td>
+                                <td data-label="Assignee"><span>{ticket.assignee?.displayName ?? 'Unassigned'}</span></td>
+                                <td data-label="Created"><time dateTime={ticket.createdAt}>{new Date(ticket.createdAt).toLocaleString()}</time></td>
                             </tr>
                         ))}</tbody>
                     </table>
                 </div>
             )}
             <nav className="ticket-pagination" aria-label="Ticket pagination">
-                <button type="button" disabled={data.first} onClick={() => navigate(data.page - 1)}>Previous</button>
+                <button type="button" className="secondary-button" disabled={data.first} onClick={() => navigate(data.page - 1)}>Previous</button>
                 <span>{data.totalPages === 0 ? 'No pages' : `Page ${data.page + 1} · ${data.totalPages} total pages`}</span>
-                <button type="button" disabled={data.last} onClick={() => navigate(data.page + 1)}>Next</button>
+                <button type="button" className="secondary-button" disabled={data.last} onClick={() => navigate(data.page + 1)}>Next</button>
             </nav>
         </>
     );
@@ -141,8 +147,11 @@ function TicketLoader({ queryString, navigate }: { queryString: string; navigate
     const current = result?.attempt === attempt ? result : undefined;
     return (
         <div className="ticket-results" aria-busy={!current}>
-            {!current && <p role="status">Loading tickets…</p>}
-            {current?.status === 'error' && <div>
+            {!current && <div className="loading-state">
+                <p role="status"><span className="loading-mark" aria-hidden="true" />Loading tickets…</p>
+                <div className="ticket-loading-rows" aria-hidden="true"><span /><span /><span /></div>
+            </div>}
+            {current?.status === 'error' && <div className="ticket-list-error">
                 <p role="alert" className="error-message">{current.message}</p>
                 <button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>
             </div>}
@@ -167,10 +176,12 @@ export function TicketListPage() {
 
     return (
         <section className="ticket-workspace" aria-labelledby="tickets-heading">
-            <h1 id="tickets-heading">Tickets</h1>
-            <p className="muted">Search and browse your available tickets.</p>
-            <Link className="ticket-create-link" to="/app/tickets/new"
-                state={{ ticketListUrl: `${location.pathname}${location.search}` }}>Create ticket</Link>
+            <div className="page-heading">
+                <div><p className="eyebrow">Workspace</p><h1 id="tickets-heading">Tickets</h1>
+                    <p className="muted">Search and browse your available tickets.</p></div>
+                <Link className="button-link" to="/app/tickets/new"
+                    state={{ ticketListUrl: `${location.pathname}${location.search}` }}><span aria-hidden="true">+</span> Create ticket</Link>
+            </div>
             <TicketControls key={query.q} query={query} change={change} reset={() => setParams({})} />
             <TicketLoader key={queryString} queryString={queryString} navigate={(page) => {
                 const next = serializeTicketQuery(query);

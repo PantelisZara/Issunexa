@@ -105,7 +105,7 @@ export function TicketComments({ ticketId, onNotFound }: { ticketId: string; onN
                     onClick={() => setQuery({ page: 0, target: formError?.requiresRefresh ? 'review' : 'latest' })}>Refresh comments</button>
             </div>
             <p className="muted">Oldest first. Comments are plain text and cannot be edited or deleted.</p>
-            {!current ? <p role="status">Loading comments…</p> : 'error' in current ? <>
+            {!current ? <p className="loading-state" role="status"><span className="loading-mark" aria-hidden="true" />Loading comments…</p> : 'error' in current ? <>
                 <p role="alert" className="error-message">{current.error}</p>
                 <button type="button" disabled={disabled} onClick={() => setQuery({ ...query })}>Retry comments</button>
             </> : <>
@@ -115,17 +115,18 @@ export function TicketComments({ ticketId, onNotFound }: { ticketId: string; onN
                     </ol>
                 )}
                 <nav className="ticket-pagination" aria-label="Comments pagination">
-                    <button type="button" disabled={disabled || current.data.first} onClick={() => setQuery({ page: current.data.page - 1, target: 'page' })}>Previous comments</button>
+                    <button type="button" className="secondary-button" disabled={disabled || current.data.first} onClick={() => setQuery({ page: current.data.page - 1, target: 'page' })}>Previous comments</button>
                     <span>{current.data.totalPages === 0 ? 'No comment pages' : `Page ${current.data.page + 1} of ${current.data.totalPages}`} · {current.data.totalElements} comments</span>
-                    <button type="button" disabled={disabled || current.data.last} onClick={() => setQuery({ page: current.data.page + 1, target: 'page' })}>Next comments</button>
+                    <button type="button" className="secondary-button" disabled={disabled || current.data.last} onClick={() => setQuery({ page: current.data.page + 1, target: 'page' })}>Next comments</button>
                 </nav>
             </>}
             {created && <div className="ticket-comment-confirmation">
-                <p role="status">Comment added.</p>
+                <p role="status" className="success-message">Comment added.</p>
                 {(!current || !('data' in current) || !current.data.content.some((comment) => comment.id === created.id))
                     && <CommentContent comment={created} />}
             </div>}
             <form className="ticket-comment-form" aria-label="Add comment" aria-busy={submitting} onSubmit={(event) => { void submit(event); }}>
+                <h3>Add a comment</h3>
                 <div className="form-field">
                     <label htmlFor="comment-body">New comment</label>
                     <textarea id="comment-body" name="body" rows={4} required maxLength={4000} value={body} disabled={disabled}

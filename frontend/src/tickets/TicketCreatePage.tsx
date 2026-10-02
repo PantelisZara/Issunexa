@@ -89,7 +89,7 @@ export function TicketCreatePage() {
     const disabled = submitting || pending;
     return (
         <section className="ticket-form-panel" aria-labelledby="create-heading">
-            <Link to={returnTo}>Back to tickets</Link>
+            <Link className="back-link" to={returnTo}><span aria-hidden="true">←</span> Back to tickets</Link>
             <h1 id="create-heading">Create ticket</h1>
             <p className="muted">All fields are required.</p>
             <form aria-label="Create ticket" aria-busy={submitting} onSubmit={(event) => { void submit(event); }}>
@@ -98,16 +98,16 @@ export function TicketCreatePage() {
                     <input id="create-title" name="title" required maxLength={255} value={title}
                         onChange={(event) => setTitle(event.target.value)} disabled={disabled}
                         aria-invalid={!!error?.fields?.title} aria-describedby={error?.fields?.title ? 'title-error' : undefined} />
-                    {error?.fields?.title && <p id="title-error" className="error-message">{error.fields.title}</p>}
+                    {error?.fields?.title && <p id="title-error" className="field-error">{error.fields.title}</p>}
                 </div>
                 <div className="form-field">
                     <label htmlFor="create-description">Description</label>
                     <textarea id="create-description" name="description" required rows={7} value={description}
                         onChange={(event) => setDescription(event.target.value)} disabled={disabled}
                         aria-invalid={!!error?.fields?.description} aria-describedby={error?.fields?.description ? 'description-error' : undefined} />
-                    {error?.fields?.description && <p id="description-error" className="error-message">{error.fields.description}</p>}
+                    {error?.fields?.description && <p id="description-error" className="field-error">{error.fields.description}</p>}
                 </div>
-                {([
+                <div className="ticket-form-options">{([
                     ['priority', 'Priority', ticketPriorities, priority, setPriority],
                     ['category', 'Category', ticketCategories, category, setCategory],
                 ] as const).map(([name, label, values, value, setValue]) => (
@@ -119,13 +119,13 @@ export function TicketCreatePage() {
                             <option value="">Choose {name}</option>
                             {values.map((option) => <option key={option} value={option}>{ticketLabels[option]}</option>)}
                         </select>
-                        {error?.fields?.[name] && <p id={`${name}-error`} className="error-message">{error.fields[name]}</p>}
+                        {error?.fields?.[name] && <p id={`${name}-error`} className="field-error">{error.fields[name]}</p>}
                     </div>
-                ))}
+                ))}</div>
                 {error && <p role="alert" className="error-message">{error.message}</p>}
                 <div className="ticket-actions">
                     <button type="submit" disabled={disabled}>{submitting ? 'Creating ticket…' : 'Create ticket'}</button>
-                    <Link to={returnTo}>Cancel</Link>
+                    <Link className="button-link secondary-button" to={returnTo}>Cancel</Link>
                 </div>
             </form>
         </section>
