@@ -1,4 +1,5 @@
-import { isSupported, ticketCategories, ticketPriorities, ticketStatuses, type Ticket, type TicketPage } from './ticketTypes';
+import { isSupported, ticketCategories, ticketPriorities, ticketStatuses,
+    type Ticket, type TicketComment, type TicketHistoryEntry, type TicketPageData } from './ticketTypes';
 
 function record(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -15,8 +16,12 @@ function timestamp(value: unknown): value is string {
 
 function decodeAssignee(value: unknown): Ticket['assignee'] {
     if (value === null) return null;
+    return decodeAccount(value);
+}
+
+function decodeAccount(value: unknown): NonNullable<Ticket['assignee']> {
     if (!record(value) || !integer(value.id, 1) || typeof value.displayName !== 'string') {
-        throw new TypeError('Invalid Ticket assignee response.');
+        throw new TypeError('Invalid Ticket account summary response.');
     }
     return { id: value.id, displayName: value.displayName };
 }
@@ -36,7 +41,7 @@ export function decodeTicket(value: unknown): Ticket {
     };
 }
 
-export function decodeTicketPage(value: unknown): TicketPage {
+function decodePage<T>(value: unknown, decodeItem: (item: unknown) => T): TicketPageData<T> {
     if (!record(value) || !Array.isArray(value.content) || !integer(value.page, 0)
         || !integer(value.size, 1) || value.size > 100 || !integer(value.totalElements, 0)
         || !integer(value.totalPages, 0) || typeof value.first !== 'boolean' || typeof value.last !== 'boolean'
@@ -44,7 +49,45 @@ export function decodeTicketPage(value: unknown): TicketPage {
         throw new TypeError('Invalid Ticket page response.');
     }
     return {
-        content: value.content.map(decodeTicket), page: value.page, size: value.size,
+        content: value.content.map(decodeItem), page: value.page, size: value.size,
         totalElements: value.totalElements, totalPages: value.totalPages, first: value.first, last: value.last,
     };
+}
+
+export function decodeTicketPage(value: unknown) {
+    return decodePage(value, decodeTicket);
+}
+
+export function decodeTicketComment(value: unknown): TicketComment {
+    if (!record(value) || !integer(value.id, 1) || typeof value.body !== 'string'
+        || value.body.length === 0 || value.body.length > 4000 || !timestamp(value.createdAt)) {
+        throw new TypeError('Invalid Ticket comment response.');
+    }
+    return { id: value.id, body: value.body, author: decodeAccount(value.author), createdAt: value.createdAt };
+}
+
+export function decodeTicketHistoryEntry(value: unknown): TicketHistoryEntry {
+    if (!record(value) || !integer(value.id, 1) || !timestamp(value.createdAt)) {
+        throw new TypeError('Invalid Ticket history response.');
+    }
+    const base = { id: value.id, actor: decodeAccount(value.actor), createdAt: value.createdAt };
+    if (value.type === 'TICKET_CREATED' && value.previousStatus === null && value.newStatus === 'OPEN' && value.assignee === null) {
+        return { ...base, type: value.type, previousStatus: null, newStatus: 'OPEN', assignee: null };
+    }
+    if (value.type === 'STATUS_CHANGED' && isSupported(ticketStatuses, value.previousStatus)
+        && isSupported(ticketStatuses, value.newStatus) && value.previousStatus !== value.newStatus && value.assignee === null) {
+        return { ...base, type: value.type, previousStatus: value.previousStatus, newStatus: value.newStatus, assignee: null };
+    }
+    if (value.type === 'ASSIGNEE_CLAIMED' && value.previousStatus === null && value.newStatus === null) {
+        return { ...base, type: value.type, previousStatus: null, newStatus: null, assignee: decodeAccount(value.assignee) };
+    }
+    throw new TypeError('Invalid Ticket history event payload.');
+}
+
+export function decodeTicketCommentPage(value: unknown) {
+    return decodePage(value, decodeTicketComment);
+}
+
+export function decodeTicketHistoryPage(value: unknown) {
+    return decodePage(value, decodeTicketHistoryEntry);
 }

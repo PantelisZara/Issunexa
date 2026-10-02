@@ -51,6 +51,7 @@ beforeEach(() => {
         if (path === '/api/auth/logout') return new Response(null, { status: 204 });
         if (String(path).endsWith('/claim') || String(path).endsWith('/status')) return mutationMock(String(path), options);
         if (String(path).startsWith('/api/tickets?')) return Response.json(ticketPage());
+        if (/\/(comments|history)\?/.test(String(path))) return Response.json(ticketPage({ content: [], totalElements: 0, totalPages: 0 }));
         return detailMock(String(path), options);
     });
 });

@@ -60,6 +60,7 @@ beforeEach(() => {
         if (path === '/api/auth/login' || path === '/api/auth/logout') return new Response(null, { status: 204 });
         if (path === '/api/tickets' && options?.method === 'POST') return createMock(options);
         if (String(path).startsWith('/api/tickets?')) return Response.json(ticketPage());
+        if (/\/(comments|history)\?/.test(String(path))) return Response.json(ticketPage({ content: [], totalElements: 0, totalPages: 0 }));
         return detailMock(String(path), options);
     });
 });
@@ -258,7 +259,8 @@ describe('Ticket details', () => {
         const times = screen.getByRole('main').querySelectorAll('time');
         expect(times[0]).toHaveAttribute('datetime', ticket.createdAt);
         expect(times[1]).toHaveAttribute('datetime', ticket.updatedAt);
-        expect(screen.queryByRole('button', { name: /claim|status|comment|delete/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /claim|status|delete/i })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Add comment' })).toBeEnabled();
     });
 
     it('shows an indistinguishable not-found state for backend 404', async () => {

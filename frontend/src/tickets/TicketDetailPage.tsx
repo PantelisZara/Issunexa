@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
 import { ApiError } from '../api/ApiError';
 import { useAuth } from '../auth/useAuth';
@@ -6,6 +6,8 @@ import { getTicket } from './ticketApi';
 import { ticketListLocation } from './ticketNavigation';
 import { ticketLabels, type Ticket } from './ticketTypes';
 import { TicketWorkflow } from './TicketWorkflow';
+import { TicketComments } from './TicketComments';
+import { TicketHistory } from './TicketHistory';
 import './tickets.css';
 
 type Result = { attempt: number } & ({ status: 'success'; ticket: Ticket } | { status: 'error'; notFound: boolean });
@@ -14,6 +16,8 @@ function TicketDetail({ id }: { id: string }) {
     const { expireSession } = useAuth();
     const [attempt, setAttempt] = useState(0);
     const [result, setResult] = useState<Result>();
+    const [historyRevision, setHistoryRevision] = useState(0);
+    const notFound = useCallback(() => setResult({ attempt, status: 'error', notFound: true }), [attempt]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -54,8 +58,13 @@ function TicketDetail({ id }: { id: string }) {
             </dl>
             <h2>Description</h2>
             <p className="ticket-description">{ticket.description}</p>
-            <TicketWorkflow ticket={ticket} onUpdated={(updated) => setResult({ attempt, status: 'success', ticket: updated })}
+            <TicketWorkflow ticket={ticket} onUpdated={(updated) => {
+                setResult({ attempt, status: 'success', ticket: updated });
+                setHistoryRevision((value) => value + 1);
+            }}
                 onRefresh={() => setAttempt((value) => value + 1)} />
+            <TicketComments ticketId={id} onNotFound={notFound} />
+            <TicketHistory key={historyRevision} ticketId={id} onNotFound={notFound} />
         </>
     );
 }

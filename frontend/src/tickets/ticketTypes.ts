@@ -24,8 +24,8 @@ export const ticketLabels: Record<Ticket['status'] | Ticket['priority'] | Ticket
     INCIDENT: 'Incident', SERVICE_REQUEST: 'Service request', ACCESS_REQUEST: 'Access request', OTHER: 'Other',
 };
 
-export interface TicketPage {
-    content: Ticket[];
+export interface TicketPageData<T> {
+    content: T[];
     page: number;
     size: number;
     totalElements: number;
@@ -33,6 +33,28 @@ export interface TicketPage {
     first: boolean;
     last: boolean;
 }
+
+export type TicketPage = TicketPageData<Ticket>;
+
+export interface TicketComment {
+    id: number;
+    body: string;
+    author: NonNullable<Ticket['assignee']>;
+    createdAt: string;
+}
+
+export type TicketHistoryEntry = {
+    id: number;
+    actor: NonNullable<Ticket['assignee']>;
+    createdAt: string;
+} & (
+    | { type: 'TICKET_CREATED'; previousStatus: null; newStatus: 'OPEN'; assignee: null }
+    | { type: 'STATUS_CHANGED'; previousStatus: Ticket['status']; newStatus: Ticket['status']; assignee: null }
+    | { type: 'ASSIGNEE_CLAIMED'; previousStatus: null; newStatus: null; assignee: NonNullable<Ticket['assignee']> }
+);
+
+export type TicketCommentPage = TicketPageData<TicketComment>;
+export type TicketHistoryPage = TicketPageData<TicketHistoryEntry>;
 
 export interface TicketQuery {
     q: string;

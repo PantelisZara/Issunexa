@@ -1,6 +1,6 @@
 import { apiRequest } from '../api/apiRequest';
 import type { CsrfMetadata } from '../auth/authTypes';
-import { decodeTicket, decodeTicketPage } from './ticketDecoders';
+import { decodeTicket, decodeTicketComment, decodeTicketCommentPage, decodeTicketHistoryPage, decodeTicketPage } from './ticketDecoders';
 import { serializeTicketQuery } from './ticketQuery';
 import type { CreateTicketInput, Ticket, TicketPage, TicketQuery } from './ticketTypes';
 
@@ -40,5 +40,26 @@ export async function changeTicketStatus(id: string, status: Ticket['status'], c
         headers: { 'Content-Type': 'application/json', [csrf.headerName]: csrf.token },
         body: JSON.stringify({ status }),
         ...(signal ? { signal } : {}),
+    }));
+}
+
+export async function getTicketComments(id: string, page = 0, size = 20, signal?: AbortSignal) {
+    return decodeTicketCommentPage(await apiRequest(`/api/tickets/${encodeURIComponent(id)}/comments?${new URLSearchParams({ page: String(page), size: String(size) })}`, {
+        cache: 'no-store', ...(signal ? { signal } : {}),
+    }));
+}
+
+export async function createTicketComment(id: string, body: string, csrf: CsrfMetadata, signal?: AbortSignal) {
+    return decodeTicketComment(await apiRequest(`/api/tickets/${encodeURIComponent(id)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', [csrf.headerName]: csrf.token },
+        body: JSON.stringify({ body }),
+        ...(signal ? { signal } : {}),
+    }));
+}
+
+export async function getTicketHistory(id: string, page = 0, size = 20, signal?: AbortSignal) {
+    return decodeTicketHistoryPage(await apiRequest(`/api/tickets/${encodeURIComponent(id)}/history?${new URLSearchParams({ page: String(page), size: String(size) })}`, {
+        cache: 'no-store', ...(signal ? { signal } : {}),
     }));
 }
