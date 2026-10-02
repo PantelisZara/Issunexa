@@ -1,0 +1,23 @@
+node_modules/
+dist/
+coverage/
+.vite/
+.git/
+.idea/
+.vscode/
+.env
+.env.*
+*.tsbuildinfo
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+# Original design files and tests are not production build inputs.
+branding/
+src/**/*.test.*
+src/test/

@@ -17,45 +17,60 @@ Flyway owns schema creation; its first migration creates the `tickets` table. Ti
 
 Ticket updates use JPA optimistic locking. Conflicting updates return `409` Problem Details so clients can reload and retry.
 
-## Local Docker environment
+## Full-stack Docker environment
 
-Requires Git and Docker with modern `docker compose` and Buildx support (included with Docker Desktop). No host Java, Maven or PostgreSQL installation is needed for this workflow. On Linux, ensure your Docker installation includes the Compose and Buildx CLI plugins. Initial builds need internet access for images and Maven dependencies.
+Requires Git and Docker with modern `docker compose` and Buildx support (included with Docker Desktop). No host Node, Java, Maven or PostgreSQL installation is needed. On Linux, ensure the Compose and Buildx CLI plugins are installed. Initial builds need internet access for images and npm/Maven dependencies.
 
-From the repository root:
+From the repository root, create `.env` only if it does not already exist:
 
 ```sh
 cp .env.example .env
+# Set ISSUNEXA_POSTGRES_PASSWORD in .env to your own local database password.
+docker compose up --build -d
+docker compose ps
 ```
 
-Set `ISSUNEXA_POSTGRES_PASSWORD` in `.env` to your own local database password, then run:
+Open **http://localhost:3000** with the default frontend settings. The Docker frontend serves the production React build; Vite does not need to run. Use an internally provisioned account, as described under Authentication; the stack does not seed demo users.
+
+An absent or empty database password stops Compose with a configuration error. `.env` is ignored; preserve existing local credentials. Frontend builds use Node 24.21.0 and `npm ci` with the lockfile. The runtime contains only compiled frontend files and official Alpine Nginx, running as a non-root user with a read-only filesystem and temporary writable storage. The backend uses the Maven Wrapper and a non-root Java 21 runtime. Image construction skips tests; the normal Maven and CI workflows still run the full suite.
+
+The browser uses one frontend origin: **browser → frontend Nginx → `/api/...` → `backend:8080` → PostgreSQL**. Nginx preserves relative API paths, session cookies and CSRF headers without CORS or cookie rewriting. React Router routes fall back to `index.html`; missing static assets return `404`. Vite fingerprinted assets receive long-lived caching; HTML and unversioned public files require revalidation. API responses are not cached by Nginx.
+
+PostgreSQL 18.6 must pass its health check before the backend starts. The backend connects through the Compose service name `postgres`, applies Flyway V1–V9, and validates the schema with Hibernate. Data lives in the `postgres_data` named volume at `/var/lib/postgresql`, the PostgreSQL 18 volume layout.
+
+The frontend can start before the backend and resolves it through Docker DNS on API requests. Its healthcheck verifies static serving only; it does **not** establish backend readiness. The backend has no dedicated health endpoint. Wait for successful backend startup in the logs and verify the existing safe endpoint through the frontend:
 
 ```sh
-docker compose up --build
+curl --fail http://localhost:3000/api/auth/csrf
 ```
 
-An absent or empty password stops Compose with a configuration error. `.env` is ignored; keep it local. The backend is built from source using the Maven Wrapper and runs as a non-root user on Java 21. Image construction skips tests; the normal Maven and CI workflows still run the full suite.
+An early API request may receive `502` while the backend starts; retry once it is ready. Both backend and PostgreSQL host ports remain bound to `127.0.0.1`. With default settings:
 
-PostgreSQL 18.6 must pass its health check before the backend starts. The backend connects through the Compose service name `postgres`, applies Flyway V1–V9, and validates the schema with Hibernate. Database data lives in the `postgres_data` named volume mounted at `/var/lib/postgresql`, the PostgreSQL 18 volume layout.
-
-Both published ports bind to `127.0.0.1`. With the default backend port:
-
-- Backend base URL: `http://localhost:8080` (there is no homepage; API routes require authentication as described below).
+- Frontend: `http://localhost:3000`.
+- Backend API / local development tools: `http://localhost:8080`.
 - OpenAPI JSON: `http://localhost:8080/v3/api-docs`.
 - Swagger UI: `http://localhost:8080/swagger-ui.html`.
+- Local PostgreSQL tools: `127.0.0.1:5432`, with the database/user/password from `.env`.
 
-Set `ISSUNEXA_BACKEND_PORT` or `ISSUNEXA_POSTGRES_PORT` in `.env` if the default `8080` or `5432` is occupied. Use the configured backend port in URLs. Optional local database tools can connect to `127.0.0.1` on the configured PostgreSQL port, using the database/user settings and password from `.env`.
+Set `ISSUNEXA_FRONTEND_PORT`, `ISSUNEXA_BACKEND_PORT` or `ISSUNEXA_POSTGRES_PORT` in `.env` if a default port is occupied. Use the configured port in URLs. The frontend defaults to `ISSUNEXA_FRONTEND_BIND_ADDRESS=127.0.0.1` for local-only access.
+
+### Optional iPhone access over Tailscale
+
+Tailscale is optional and is not an Issunexa dependency. For browser access from an iPhone on the same tailnet, set `ISSUNEXA_FRONTEND_BIND_ADDRESS` in the ignored `.env` to the PC's Tailscale IPv4 address, then run `docker compose up --build -d` to recreate the frontend binding. Open `http://<PC-Tailscale-address>:<frontend-port>` on the iPhone; tailnet access rules must permit the connection. The PC can use that same URL while bound to Tailscale.
+
+Only the frontend needs this binding. Mobile requests reach Nginx, then the backend and database through the Compose network; keep backend and PostgreSQL bound to loopback. Do not commit a machine-specific address. Restore `ISSUNEXA_FRONTEND_BIND_ADDRESS=127.0.0.1` and rerun Compose to return to local-only access.
 
 Useful commands:
 
 ```sh
 docker compose up --build
-docker compose up -d --build
-docker compose logs -f backend
+docker compose up --build -d
+docker compose logs -f backend frontend
 docker compose ps
 docker compose down
 ```
 
-`docker compose down` removes the containers and network but preserves database data. **`docker compose down -v` also deletes the named PostgreSQL volume and all local database data.** PostgreSQL initialization settings apply only to an empty volume; editing the password in `.env` does not change an existing database user's password.
+`docker compose down` preserves database data. **`docker compose down -v` also deletes the named PostgreSQL volume and all local database data.** PostgreSQL initialization settings apply only to an empty volume; editing the password in `.env` does not change an existing database user's password.
 
 ## Frontend development
 
@@ -65,7 +80,7 @@ The interface uses a system-font stack and a small CSS token set in `src/index.c
 
 Original supplied branding is preserved in `frontend/branding/`; browser assets are unchanged copies in `frontend/public/branding/`. The full SVG wordmark appears on login and the desktop application header; the supplied X mark is used in compact headers and the favicon. See [the branding inventory](frontend/branding/README.md) for variant selection and actual icon dimensions. The web manifest supplies app icons; it does not add offline behavior.
 
-Start the backend on port **8080** using the Docker workflow above or the Maven workflow below. Then, in another terminal:
+For the separate Vite development workflow, start the backend on port **8080** with `docker compose up --build -d postgres backend` from the repository root, or use the Maven workflow below. Then, in another terminal:
 
 ```sh
 cd frontend
@@ -245,8 +260,8 @@ The application uses Spring Boot's default HTTP port, `8080`. OpenAPI and Swagge
 ├── .editorconfig          # Shared formatting rules
 ├── .gitignore            # Generated and local files
 ├── .env.example          # Local Compose configuration template; no password
-├── compose.yaml          # Backend and PostgreSQL local environment
-├── frontend/             # React, TypeScript, Vite and frontend tests
+├── compose.yaml          # Frontend, backend and PostgreSQL local environment
+├── frontend/             # React/Vite, tests, Dockerfile, .dockerignore and nginx.conf
 ├── README.md
 └── backend/
     ├── Dockerfile        # Maven build and non-root Java 21 runtime

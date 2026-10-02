@@ -31,5 +31,20 @@ services:
       postgres:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "${ISSUNEXA_FRONTEND_BIND_ADDRESS:-127.0.0.1}:${ISSUNEXA_FRONTEND_PORT:-3000}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Frontend health checks static serving only. API readiness is independent;
+    # Nginx resolves backend through Docker DNS when each API request arrives.
+
 volumes:
   postgres_data:
