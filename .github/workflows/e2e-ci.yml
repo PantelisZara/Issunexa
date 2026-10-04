@@ -1,0 +1,74 @@
+name: E2E CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Verify full-stack browser journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24 and npm cache
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Show environment versions
+        run: |
+          node --version
+          npm --version
+          docker --version
+          docker compose version
+          docker buildx version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check E2E sources
+        run: npm run typecheck:e2e
+
+      - name: Validate Docker and Compose compatibility
+        run: |
+          docker info >/dev/null
+          docker compose -f - config --quiet <<'YAML'
+          services:
+            compatibility:
+              image: postgres:18.6
+              ports: !reset []
+          YAML
+
+      - name: Run full-stack Playwright tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright failure diagnostics
+        if: ${{ failure() && hashFiles('frontend/e2e-artifacts/**') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-e2e-failure
+          path: |
+            frontend/e2e-artifacts/playwright-report/
+            frontend/e2e-artifacts/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

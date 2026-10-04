@@ -102,7 +102,15 @@ npm run build
 
 Routed UI tests should wait for page-specific content and scope ambiguous assertions to the Ticket page. Authentication bootstrap, the account shell and route diagnostics can expose overlapping status roles or text.
 
-The separate `Frontend CI` GitHub Actions workflow runs `npm ci`, lint, tests and the production build on Node 24.21.0 for pushes and pull requests targeting `master`, and supports manual runs. It does not require backend services.
+### Continuous integration
+
+Pushes and pull requests targeting `master`, plus manual runs, independently execute three GitHub Actions workflows:
+
+- `Backend CI`: Java 21, Maven `verify`, and Spring Boot/PostgreSQL integration tests with Testcontainers.
+- `Frontend CI`: Node 24.21.0, `npm ci`, lint, E2E TypeScript checks, Vitest and the production build; no backend services are required.
+- `E2E CI`: Node 24.21.0 and the same local `npm run test:e2e` command, exercising Chromium journeys against the real Dockerized Nginx frontend, Spring Boot backend and PostgreSQL.
+
+E2E failures upload the Playwright HTML report, traces and screenshots when available as `playwright-e2e-failure` in the GitHub Actions run, retained for seven days. The E2E script owns cleanup of its disposable Docker resources.
 
 ### End-to-end tests
 
@@ -120,7 +128,7 @@ The suite uses one worker, zero retries, desktop Chromium and one Pixel 7 Chromi
 
 The HTML report is written to `frontend/e2e-artifacts/playwright-report/`; failed tests retain screenshots and traces under `frontend/e2e-artifacts/test-results/`. The parent is ignored and mounted writable so Playwright can recreate its output directories, including on NTFS. Reports/results are replaced by subsequent test runs. Inspect the report with `npm exec -- playwright show-report e2e-artifacts/playwright-report`, or a trace with `npm exec -- playwright show-trace <trace.zip>`. Failure prints recent service logs, preserves the failing process exit code, and still removes that invocation's containers, network, database volume, temporary credentials and project image tags. Docker build cache and downloaded base images remain available. Interrupted runs also attempt cleanup.
 
-This coverage is Chromium only. Mobile emulation is not physical iPhone/Safari testing. There are no Firefox, WebKit, screenshot-baseline or CI E2E tests.
+This coverage is Chromium only. Mobile emulation is not physical iPhone/Safari testing. There are no Firefox, WebKit or screenshot-baseline tests.
 
 The build uses stable TypeScript 7 through the `@typescript/native` npm alias. ESLint needs the older compiler API, so `typescript` aliases Microsoft's `@typescript/typescript6` compatibility package, following the [official side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60). The `tsc` build command still runs TypeScript 7.
 

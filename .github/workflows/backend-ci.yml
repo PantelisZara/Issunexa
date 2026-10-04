@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Java 21 and Maven cache
         uses: actions/setup-java@v6.0.1
