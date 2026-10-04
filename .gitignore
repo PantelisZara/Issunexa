@@ -11,6 +11,9 @@ frontend/dist/
 frontend/coverage/
 frontend/.vite/
 *.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
+frontend/e2e-artifacts/
 
 # IntelliJ IDEA and VS Code
 .idea/

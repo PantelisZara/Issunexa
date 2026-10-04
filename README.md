@@ -104,6 +104,24 @@ Routed UI tests should wait for page-specific content and scope ambiguous assert
 
 The separate `Frontend CI` GitHub Actions workflow runs `npm ci`, lint, tests and the production build on Node 24.21.0 for pushes and pull requests targeting `master`, and supports manual runs. It does not require backend services.
 
+### End-to-end tests
+
+Vitest covers frontend components and integration within the frontend. Playwright covers seven real full-stack browser journeys through the production Nginx frontend, `/api` proxy, Spring Boot and PostgreSQL: authentication/session, requester creation/comments/history, ownership isolation, agent workflow, a representative admin action, query-state preservation, and mobile usability.
+
+Use Node 24 for project/npm tooling and a running Docker daemon with Compose and Buildx (modern Compose supporting the overlay's `!reset` tag). After `npm ci`, run from `frontend/`:
+
+```sh
+npm run test:e2e
+```
+
+This command builds the existing application services plus a test runner based on the [official Playwright Docker image](https://playwright.dev/docs/docker), with the exact installed Playwright version (`1.63.0`, `mcr.microsoft.com/playwright:v1.63.0-noble`). Node 24.21.0 is supplied to the runner. No host browser libraries or system installation are needed. Each invocation uses a unique `issunexa-e2e-*` Compose project, a generated temporary database password, a fresh PostgreSQL volume, and four explicitly synthetic accounts. The normal `.env` and normal database volume are unused. No service ports are published; browser traffic stays on the isolated Compose network and targets Nginx. Readiness checks validate `/api/auth/csrf` through Nginx before provisioning accounts and running tests. Tickets are created through the UI.
+
+The suite uses one worker, zero retries, desktop Chromium and one Pixel 7 Chromium mobile-emulation test. Tests have independent browser sessions and unique Ticket names. `npm run typecheck:e2e` checks the test sources. `npm run test:e2e:headed` runs the same disposable workflow with headed Chromium under a virtual display inside Docker; inspect failures through the artifacts rather than expecting a host desktop window. Playwright CLI options can be forwarded, for example `npm run test:e2e -- --project=chromium-desktop`.
+
+The HTML report is written to `frontend/e2e-artifacts/playwright-report/`; failed tests retain screenshots and traces under `frontend/e2e-artifacts/test-results/`. The parent is ignored and mounted writable so Playwright can recreate its output directories, including on NTFS. Reports/results are replaced by subsequent test runs. Inspect the report with `npm exec -- playwright show-report e2e-artifacts/playwright-report`, or a trace with `npm exec -- playwright show-trace <trace.zip>`. Failure prints recent service logs, preserves the failing process exit code, and still removes that invocation's containers, network, database volume, temporary credentials and project image tags. Docker build cache and downloaded base images remain available. Interrupted runs also attempt cleanup.
+
+This coverage is Chromium only. Mobile emulation is not physical iPhone/Safari testing. There are no Firefox, WebKit, screenshot-baseline or CI E2E tests.
+
 The build uses stable TypeScript 7 through the `@typescript/native` npm alias. ESLint needs the older compiler API, so `typescript` aliases Microsoft's `@typescript/typescript6` compatibility package, following the [official side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60). The `tsc` build command still runs TypeScript 7.
 
 API calls use `src/api/apiRequest.ts` with relative `/api/...` paths and session credentials. JSON is returned as `unknown` unless the caller supplies a narrowing decoder; empty success responses return `undefined`. HTTP failures become `ApiError` with optional structured Problem Details. Authentication decoders validate the CSRF and current-session responses. No frontend environment variables are needed; never put secrets in browser-visible `VITE_` variables.

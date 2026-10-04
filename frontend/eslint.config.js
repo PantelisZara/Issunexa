@@ -6,7 +6,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig([
-    globalIgnores(['dist', 'coverage']),
+    globalIgnores(['dist', 'coverage', 'playwright-report', 'test-results', 'e2e-artifacts']),
     {
         files: ['**/*.{ts,tsx}'],
         extends: [js.configs.recommended, tseslint.configs.recommended],
@@ -17,7 +17,7 @@ export default defineConfig([
         languageOptions: { globals: globals.browser },
     },
     {
-        files: ['*.js'],
+        files: ['*.js', 'e2e/**/*.mjs'],
         extends: [js.configs.recommended],
         languageOptions: { globals: globals.node },
     },

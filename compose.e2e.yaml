@@ -1,0 +1,24 @@
+# Test-only overlay. Never provision these accounts into the normal Compose project.
+services:
+  postgres:
+    ports: !reset []
+  backend:
+    ports: !reset []
+  frontend:
+    ports: !reset []
+  playwright:
+    profiles: [e2e]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.e2e
+      args:
+        PLAYWRIGHT_VERSION: ${PLAYWRIGHT_VERSION:?Run npm run test:e2e}
+    init: true
+    shm_size: 1gb
+    user: "${E2E_UID:?Run npm run test:e2e}:${E2E_GID:?Run npm run test:e2e}"
+    environment:
+      HOME: /tmp
+      PLAYWRIGHT_BASE_URL: http://frontend:8080
+    volumes:
+      # Mount the parent: Playwright must be able to recreate its output folders.
+      - ./frontend/e2e-artifacts:/work/e2e-artifacts
