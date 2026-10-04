@@ -4,6 +4,10 @@ Issunexa is an Issue & Service Management / Help Desk platform being developed a
 
 The current backend supports creating and retrieving Tickets through a REST API, backed by PostgreSQL persistence.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the Issue → branch → PR → CI → review → merge workflow, branch and commit conventions, and verification expectations.
+
 ## Backend baseline
 
 - Java 21
