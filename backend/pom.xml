@@ -20,6 +20,10 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Security patches on Boot 4.1.1's managed lines; rationale: docs/dependency-security-012.md. -->
+        <tomcat.version>11.0.26</tomcat.version>
+        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+        <jackson-bom.version>3.1.7</jackson-bom.version>
     </properties>
 
     <dependencies>

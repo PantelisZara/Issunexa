@@ -41,6 +41,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
@@ -443,6 +444,26 @@ class AuthenticationIntegrationTests {
                 "{\"email\":\"" + "a".repeat(255) + "\",\"password\":\"" + PASSWORD + "\"}",
                 "{\"password\":\"" + PASSWORD + "\","
         );
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"UTF-8", "UTF-16", "ISO-8859-1"})
+    void rejectsOversizedJsonNamesWithGenericProblemDetailsWithoutAuthenticating(String encoding) throws Exception {
+        CsrfState csrf = csrf(null);
+        String originalSessionId = csrf.session().getId();
+        Charset charset = Charset.forName(encoding);
+        String body = "{\"email\":\"" + EMAIL + "\",\"password\":\"" + PASSWORD + "\",\""
+                + "x".repeat(50_001) + "\":null}";
+
+        assertProblem(mockMvc.perform(post("/api/auth/login").session(csrf.session())
+                        .header(csrf.headerName(), csrf.token())
+                        .contentType(new MediaType(MediaType.APPLICATION_JSON, charset))
+                        .content(body.getBytes(charset))),
+                400, "Invalid request body", "Malformed or unreadable request body.");
+        assertThat(csrf.session().getId()).isEqualTo(originalSessionId);
+        assertThat(csrf.session().getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY))
+                .isNull();
+        assertUnauthenticated(mockMvc.perform(get("/api/auth/session").session(csrf.session())));
     }
 
     private CsrfState csrf(MockHttpSession session) throws Exception {
