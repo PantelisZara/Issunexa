@@ -33,7 +33,7 @@ Ticket creation, status changes and claims write history entries in the same ser
 
 ## Query ownership
 
-The backend owns visibility, filtering, sorting, pagination and totals. TicketService combines requester visibility and requested filters from [TicketSpecifications](../backend/src/main/java/io/github/panteliszara/issunexa/ticket/TicketSpecifications.java) before pagination; text search escapes `%`, `_` and backslash as literal characters. Sorting includes ID as a deterministic tie-breaker. Page parameters are zero-based, with a default size of 20 and maximum size of 100. The frontend displays these results without computing its own filtered totals.
+The backend owns visibility, filtering, sorting, pagination and totals. TicketService combines requester visibility and requested filters from [TicketSpecifications](../backend/src/main/java/io/github/panteliszara/issunexa/ticket/TicketSpecifications.java) before pagination; text search escapes `%`, `_` and backslash as literal characters. Sorting includes ID as a deterministic tie-breaker. Page parameters are zero-based, with a default size of 20 and maximum size of 100. Ticket/comment/history listings reject offsets (`page × size`) above JPA's `Integer.MAX_VALUE` limit with `400`; scalar pagination parameters require one nonblank value. The frontend displays these results without computing its own filtered totals.
 
 This keeps authorization and query behavior consistent for browser and direct API callers. Services and repositories share one schema and transaction manager, so package boundaries remain coupled through domain relationships and persistence.
 

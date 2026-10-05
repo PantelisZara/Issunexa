@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.ticket.api;
 
+import io.github.panteliszara.issunexa.shared.web.PaginationValidation;
 import io.github.panteliszara.issunexa.ticket.Ticket;
 import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketPriority;
@@ -194,13 +195,14 @@ public class TicketController {
                     schema = @Schema(implementation = String.class,
                             allowableValues = {"asc", "desc"}, defaultValue = "desc"))
             @RequestParam(name = "direction", defaultValue = "desc") TicketSortDirection direction,
-            Principal principal) {
+            Principal principal) throws ServletRequestBindingException {
+        PaginationValidation.validateOffset(page, size);
         String query = q == null ? null : q.strip();
         return TicketPageResponse.from(ticketService.listTickets(page, size, status, priority, category, query, sortBy, direction,
                 principal.getName()));
     }
 
-    @InitBinder({"status", "priority", "category", "sortBy", "direction", "q"})
+    @InitBinder({"page", "size", "status", "priority", "category", "sortBy", "direction", "q"})
     void validateSingleListingParameter(WebDataBinder binder, NativeWebRequest request)
             throws ServletRequestBindingException {
         String parameter = binder.getObjectName();

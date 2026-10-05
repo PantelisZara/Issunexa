@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.ticket.history.api;
 
+import io.github.panteliszara.issunexa.shared.web.PaginationValidation;
 import io.github.panteliszara.issunexa.ticket.history.TicketHistoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -62,7 +63,8 @@ public class TicketHistoryController {
             @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
             @Parameter(description = "Maximum number of history entries per page.")
             @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size,
-            Principal principal) {
+            Principal principal) throws ServletRequestBindingException {
+        PaginationValidation.validateOffset(page, size);
         return TicketHistoryPageResponse.from(ticketHistoryService.listHistory(ticketId, principal.getName(), page, size));
     }
 

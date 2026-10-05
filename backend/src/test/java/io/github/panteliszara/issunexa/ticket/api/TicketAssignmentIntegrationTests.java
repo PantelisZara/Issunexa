@@ -126,6 +126,79 @@ class TicketAssignmentIntegrationTests {
 
     @ParameterizedTest
     @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
+    void revokedStaffRoleCannotChangeStatusUsingAnExistingSession(UserRole role) throws Exception {
+        UserAccount actor = role == UserRole.AGENT ? agent : admin;
+        MockHttpSession session = login(actor);
+        CsrfState token = csrf(session);
+        Map<String, Object> before = storedState(ownedId);
+        Long historyCount = jdbc.queryForObject("SELECT count(*) FROM ticket_history_entries", Long.class);
+        jdbc.update("UPDATE users SET role = 'REQUESTER' WHERE id = ?", actor.getId());
+        mockMvc.perform(get("/api/auth/session").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("REQUESTER"));
+
+        assertProblem(mockMvc.perform(patch("/api/tickets/" + ownedId + "/status").session(session)
+                        .header(token.headerName(), token.token()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"IN_PROGRESS\"}")),
+                403, "Forbidden", "Access to this resource is forbidden.", "/api/tickets/" + ownedId + "/status");
+
+        assertThat(storedState(ownedId)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ticket_history_entries", Long.class)).isEqualTo(historyCount);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
+    void revokedStaffRoleCannotClaimUsingAnExistingSession(UserRole role) throws Exception {
+        UserAccount actor = role == UserRole.AGENT ? agent : admin;
+        MockHttpSession session = login(actor);
+        CsrfState token = csrf(session);
+        Map<String, Object> before = storedState(ownedId);
+        Long historyCount = jdbc.queryForObject("SELECT count(*) FROM ticket_history_entries", Long.class);
+        jdbc.update("UPDATE users SET role = 'REQUESTER' WHERE id = ?", actor.getId());
+
+        assertProblem(mockMvc.perform(claim(ownedId, session, token)),
+                403, "Forbidden", "Access to this resource is forbidden.", "/api/tickets/" + ownedId + "/claim");
+
+        assertThat(storedState(ownedId)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ticket_history_entries", Long.class)).isEqualTo(historyCount);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/comments", "/history"})
+    void rejectsPaginationOffsetsAboveTheJpaLimit(String suffix) throws Exception {
+        MockHttpSession session = login(requester);
+        String path = suffix.isEmpty() ? "/api/tickets" : "/api/tickets/" + ownedId + suffix;
+
+        assertProblem(mockMvc.perform(get(path).session(session)
+                        .param("page", Integer.toString(Integer.MAX_VALUE)).param("size", "20")),
+                400, "Invalid request parameter", "Malformed or unreadable request parameter.", path);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/comments", "/history"})
+    void acceptsPaginationOffsetAtTheJpaLimit(String suffix) throws Exception {
+        MockHttpSession session = login(requester);
+        String path = suffix.isEmpty() ? "/api/tickets" : "/api/tickets/" + ownedId + suffix;
+
+        mockMvc.perform(get(path).session(session)
+                        .param("page", Integer.toString(Integer.MAX_VALUE)).param("size", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.page").value(Integer.MAX_VALUE));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"page", "size"})
+    void ticketListingRejectsBlankRepeatedAndArrayPagination(String parameter) throws Exception {
+        MockHttpSession session = login(requester);
+        for (String[] values : List.<String[]>of(new String[]{""}, new String[]{"1", "2"})) {
+            assertProblem(mockMvc.perform(get("/api/tickets").session(session).param(parameter, values)),
+                    400, "Invalid request parameter", "Malformed or unreadable request parameter.", "/api/tickets");
+        }
+        assertProblem(mockMvc.perform(get("/api/tickets").session(session).param(parameter + "[]", "1")),
+                400, "Invalid request parameter", "Malformed or unreadable request parameter.", "/api/tickets");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"AGENT", "ADMIN"})
     void staffCanClaimRequesterStaffAndHistoricalTicketsOnlyForThemselves(UserRole role) throws Exception {
         UserAccount actor = role == UserRole.AGENT ? agent : admin;
         MockHttpSession session = login(actor);

@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,7 +52,7 @@ public class TicketService {
     @Transactional
     @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
     public Ticket claimTicket(Long ticketId, String actorEmail) {
-        UserAccount actor = resolveCurrentAccount(actorEmail);
+        UserAccount actor = resolveStaffAccount(actorEmail);
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
         ticket.claim(actor);
@@ -62,7 +63,7 @@ public class TicketService {
     @Transactional
     @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
     public Ticket changeStatus(Long id, TicketStatus targetStatus, String actorEmail) {
-        UserAccount actor = resolveCurrentAccount(actorEmail);
+        UserAccount actor = resolveStaffAccount(actorEmail);
         Ticket ticket = ticketRepository.findById(id)
                 .orElseThrow(() -> new TicketNotFoundException(id));
         TicketStatus previousStatus = ticket.getStatus();
@@ -97,6 +98,15 @@ public class TicketService {
             specification = specification.and(TicketSpecifications.containsText(query));
         }
         return ticketRepository.findAll(specification, pageRequest);
+    }
+
+    private UserAccount resolveStaffAccount(String email) {
+        UserAccount actor = resolveCurrentAccount(email);
+        // Session authorities reflect login time; the persisted role may have been revoked since then.
+        return switch (actor.getRole()) {
+            case AGENT, ADMIN -> actor;
+            case REQUESTER -> throw new AccessDeniedException("Staff role required.");
+        };
     }
 
     private UserAccount resolveCurrentAccount(String email) {
