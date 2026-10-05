@@ -22,7 +22,7 @@
 .ticket-table tbody th { font-size: 0.875rem; font-weight: 600; }
 .ticket-table tbody th a { display: flex; align-items: center; min-height: 44px; color: var(--text); text-decoration: none; }
 .ticket-table tbody th a:hover { color: var(--accent-hover); text-decoration: underline; }
-.ticket-table tbody tr:hover { background: #fbfbfd; }
+.ticket-table tbody tr:hover { background: var(--surface-hover); }
 .ticket-table td { font-size: 0.8125rem; }
 .ticket-table time { display: block; color: var(--text-secondary); }
 .ticket-empty { padding: var(--space-7) var(--space-5); text-align: center; }
@@ -41,8 +41,8 @@
 .ticket-badge-status[data-value="CLOSED"] { color: var(--text-secondary); background: var(--surface-muted); }
 .ticket-badge-priority { padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-small); }
 .ticket-badge-priority[data-value="LOW"] { color: var(--text-secondary); }
-.ticket-badge-priority[data-value="HIGH"] { color: var(--warning); background: var(--warning-soft); border-color: #e6d4b4; }
-.ticket-badge-priority[data-value="URGENT"] { color: var(--danger); background: var(--danger-soft); border-color: #edc5cb; }
+.ticket-badge-priority[data-value="HIGH"] { color: var(--warning); background: var(--warning-soft); border-color: var(--warning-border); }
+.ticket-badge-priority[data-value="URGENT"] { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .ticket-badge-category { color: var(--text-secondary); }
 
 .ticket-form-panel, .ticket-detail-panel { padding: var(--space-6); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }

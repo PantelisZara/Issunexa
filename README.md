@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="frontend/branding/issunexa-logo-light.svg">
+    <source media="(prefers-color-scheme: light)" srcset="frontend/branding/issunexa-logo-dark.svg">
+    <img src="frontend/branding/issunexa-logo-dark.svg" alt="Issunexa" width="320">
+  </picture>
+</p>
+
 # Issunexa
 
 Issunexa is a single-maintainer portfolio help-desk application: requesters submit and track support tickets, while agents claim work, move tickets through a defined lifecycle and discuss progress with requesters.

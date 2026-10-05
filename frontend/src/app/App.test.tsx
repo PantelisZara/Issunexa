@@ -37,6 +37,7 @@ async function fillLogin() {
 }
 
 beforeEach(() => {
+    localStorage.clear();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', (path: RequestInfo | URL, options?: RequestInit) => {
         if (String(path).startsWith('/api/tickets?')) return Promise.resolve(Response.json(ticketPage()));
@@ -94,6 +95,8 @@ describe('authentication routes and form', () => {
         expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveFocus();
         await user.tab();
         await user.tab();
+        expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveFocus();
+        await user.tab();
         expect(screen.getByLabelText('Email')).toHaveFocus();
         await user.tab();
         expect(screen.getByLabelText('Password')).toHaveFocus();
@@ -147,6 +150,8 @@ describe('authentication routes and form', () => {
         expect(screen.getByRole('heading', { name: 'Page not found' })).toBeVisible();
         const user = userEvent.setup();
         await user.tab(); await user.tab(); await user.tab();
+        expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveFocus();
+        await user.tab();
         expect(screen.getByRole('link', { name: 'Return to home' })).toHaveFocus();
         await user.keyboard('{Enter}');
         expect(await screen.findByRole('heading', { name: 'Sign in to Issunexa' })).toBeVisible();
@@ -204,13 +209,19 @@ describe('authentication routes and form', () => {
             .mockResolvedValueOnce(Response.json({ ...csrfA, token: 'synthetic-C' }));
         renderApp('/login');
         const user = await fillLogin();
+        await user.selectOptions(screen.getByRole('combobox', { name: 'Theme' }), 'dark');
+        expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
         await user.click(screen.getByRole('button', { name: 'Sign in' }));
         expect(await screen.findByText('Welcome, Alice')).toBeVisible();
         expect(await screen.findByRole('heading', { name: 'Tickets' })).toBeVisible();
+        expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveValue('dark');
+        expect(screen.getByRole('img', { name: 'Issunexa' })).toHaveAttribute('src', '/branding/issunexa-logo-light.svg');
         expect(screen.getByLabelText('Current route')).toHaveTextContent('/app/tickets');
         await user.click(screen.getByRole('button', { name: 'Sign out' }));
         expect(await screen.findByRole('heading', { name: 'Sign in to Issunexa' })).toBeVisible();
         expect(screen.getByLabelText('Current route')).toHaveTextContent('/login');
+        expect(screen.getByRole('combobox', { name: 'Theme' })).toHaveValue('dark');
+        expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
         expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
             '/api/auth/csrf', '/api/auth/session', '/api/auth/login', '/api/auth/csrf',
             '/api/auth/session', '/api/auth/logout', '/api/auth/csrf',
