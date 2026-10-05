@@ -5,6 +5,9 @@ spring:
     url: ${ISSUNEXA_DB_URL}
     username: ${ISSUNEXA_DB_USERNAME}
     password: ${ISSUNEXA_DB_PASSWORD}
+  flyway:
+    user: ${ISSUNEXA_FLYWAY_USERNAME}
+    password: ${ISSUNEXA_FLYWAY_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate

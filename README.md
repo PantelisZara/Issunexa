@@ -33,18 +33,18 @@ From the repository root, create `.env` only if it does not already exist:
 
 ```sh
 cp .env.example .env
-# Set ISSUNEXA_POSTGRES_PASSWORD in .env to your own local database password.
+# Set the three password fields in .env to distinct local passwords.
 docker compose up --build -d
 docker compose ps
 ```
 
 Open **http://localhost:3000** with the default frontend settings. The Docker frontend serves the production React build; Vite does not need to run. Use an internally provisioned account, as described under Authentication; the stack does not seed demo users.
 
-An absent or empty database password stops Compose with a configuration error. `.env` is ignored; preserve existing local credentials. Frontend builds use Node 24.21.0 and `npm ci` with the lockfile. The runtime contains only compiled frontend files and official Alpine Nginx, running as a non-root user with a read-only filesystem and temporary writable storage. The backend uses the Maven Wrapper and a non-root Java 21 runtime. Image construction skips tests; the normal Maven and CI workflows still run the full suite.
+An absent or empty bootstrap, migration or runtime password stops Compose with a configuration error. `.env` is ignored; preserve existing local credentials. Frontend builds use Node 24.21.0 and `npm ci` with the lockfile. The runtime contains only compiled frontend files and official Alpine Nginx, running as a non-root user with a read-only filesystem and temporary writable storage. The backend uses the Maven Wrapper and a non-root Java 21 runtime. Image construction skips tests; the normal Maven and CI workflows still run the full suite.
 
 The browser uses one frontend origin: **browser → frontend Nginx → `/api/...` → `backend:8080` → PostgreSQL**. Nginx preserves relative API paths, session cookies and CSRF headers without CORS or cookie rewriting. React Router routes fall back to `index.html`; missing static assets return `404`. Vite fingerprinted assets receive long-lived caching; HTML and unversioned public files require revalidation. API responses are not cached by Nginx.
 
-PostgreSQL 18.6 must pass its health check before the backend starts. The backend connects through the Compose service name `postgres`, applies Flyway V1–V9, and validates the schema with Hibernate. Data lives in the `postgres_data` named volume at `/var/lib/postgresql`, the PostgreSQL 18 volume layout.
+PostgreSQL 18.6 must pass its health check before `database-bootstrap` provisions distinct migration and runtime roles. The backend starts only after that step succeeds, connects through the Compose service name `postgres`, applies Flyway V1–V9 with the migration role, and validates the schema with Hibernate using the restricted runtime role. See [database provisioning and existing-installation upgrades](docs/database.md#database-roles-and-provisioning) before upgrading an existing volume. Data lives in the `postgres_data` named volume at `/var/lib/postgresql`, the PostgreSQL 18 volume layout.
 
 The frontend can start before the backend and resolves it through Docker DNS on API requests. Its healthcheck verifies static serving only; it does **not** establish backend readiness. The backend has no dedicated health endpoint. Wait for successful backend startup in the logs and verify the existing safe endpoint through the frontend:
 
@@ -263,13 +263,15 @@ History recording begins with V8. Earlier activity is not backfilled: existing T
 
 ## Runtime database configuration
 
-Before starting the application, provide these environment variables for an existing PostgreSQL database:
+First provision the [database roles](docs/database.md#database-roles-and-provisioning), then provide these environment variables for an existing PostgreSQL database:
 
 | Variable | Purpose |
 | --- | --- |
 | `ISSUNEXA_DB_URL` | JDBC URL, for example `jdbc:postgresql://localhost:5432/issunexa` |
-| `ISSUNEXA_DB_USERNAME` | Database username |
-| `ISSUNEXA_DB_PASSWORD` | Database password |
+| `ISSUNEXA_DB_USERNAME` | Restricted runtime username |
+| `ISSUNEXA_DB_PASSWORD` | Runtime password |
+| `ISSUNEXA_FLYWAY_USERNAME` | Migration/schema-owner username |
+| `ISSUNEXA_FLYWAY_PASSWORD` | Migration password; Flyway uses the same JDBC URL |
 
 There are no default credentials. Keep local credentials outside source control.
 

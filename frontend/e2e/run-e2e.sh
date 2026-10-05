@@ -31,7 +31,7 @@ cleanup() {
     trap - EXIT INT TERM
     if $compose_ready && (( result != 0 )); then
         printf '\nE2E failed (exit %s). Recent service logs:\n' "$result" >&2
-        "${compose[@]}" logs --no-color --tail=100 postgres backend frontend >&2 || true
+        "${compose[@]}" logs --no-color --tail=100 postgres database-bootstrap backend frontend >&2 || true
     fi
     # Only this invocation's resources; never the normal database volume.
     if $compose_ready && ! "${compose[@]}" down -v --remove-orphans; then
@@ -56,6 +56,7 @@ trap 'exit 143' TERM
 
 # Explicit env-file and cleared inherited settings keep the user's .env unused.
 unset ISSUNEXA_POSTGRES_DB ISSUNEXA_POSTGRES_USER ISSUNEXA_POSTGRES_PASSWORD
+unset ISSUNEXA_DB_USERNAME ISSUNEXA_DB_PASSWORD ISSUNEXA_FLYWAY_USERNAME ISSUNEXA_FLYWAY_PASSWORD
 unset ISSUNEXA_POSTGRES_PORT ISSUNEXA_BACKEND_PORT
 unset ISSUNEXA_FRONTEND_BIND_ADDRESS ISSUNEXA_FRONTEND_PORT
 node --input-type=module - "$temp_dir/environment" <<'JS'
@@ -65,6 +66,10 @@ writeFileSync(process.argv[2], [
     'ISSUNEXA_POSTGRES_DB=issunexa_e2e',
     'ISSUNEXA_POSTGRES_USER=issunexa_e2e',
     `ISSUNEXA_POSTGRES_PASSWORD=${randomBytes(32).toString('hex')}`,
+    'ISSUNEXA_FLYWAY_USERNAME=issunexa_migrator',
+    `ISSUNEXA_FLYWAY_PASSWORD=${randomBytes(32).toString('hex')}`,
+    'ISSUNEXA_DB_USERNAME=issunexa_runtime',
+    `ISSUNEXA_DB_PASSWORD=${randomBytes(32).toString('hex')}`,
     'ISSUNEXA_FRONTEND_BIND_ADDRESS=127.0.0.1',
 ].join('\n') + '\n', { mode: 0o600 });
 JS

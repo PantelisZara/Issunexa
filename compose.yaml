@@ -18,18 +18,39 @@ services:
       retries: 10
       start_period: 5s
 
+  database-bootstrap:
+    image: postgres:18.6
+    entrypoint: ["/bin/sh", "/backend/database/bootstrap.sh"]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${ISSUNEXA_POSTGRES_DB:-issunexa}
+      PGUSER: ${ISSUNEXA_POSTGRES_USER:-issunexa}
+      PGPASSWORD: ${ISSUNEXA_POSTGRES_PASSWORD:?Set ISSUNEXA_POSTGRES_PASSWORD in .env}
+      ISSUNEXA_FLYWAY_USERNAME: ${ISSUNEXA_FLYWAY_USERNAME:-issunexa_migrator}
+      ISSUNEXA_FLYWAY_PASSWORD: ${ISSUNEXA_FLYWAY_PASSWORD:?Set ISSUNEXA_FLYWAY_PASSWORD in .env}
+      ISSUNEXA_DB_USERNAME: ${ISSUNEXA_DB_USERNAME:-issunexa_runtime}
+      ISSUNEXA_DB_PASSWORD: ${ISSUNEXA_DB_PASSWORD:?Set ISSUNEXA_DB_PASSWORD in .env}
+    volumes:
+      - ./backend/database:/backend/database:ro
+      - ./backend/src/main/resources/db/migration/afterMigrate__runtime_privileges.sql:/backend/src/main/resources/db/migration/afterMigrate__runtime_privileges.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     build:
       context: ./backend
     environment:
       ISSUNEXA_DB_URL: jdbc:postgresql://postgres:5432/${ISSUNEXA_POSTGRES_DB:-issunexa}
-      ISSUNEXA_DB_USERNAME: ${ISSUNEXA_POSTGRES_USER:-issunexa}
-      ISSUNEXA_DB_PASSWORD: ${ISSUNEXA_POSTGRES_PASSWORD:?Set ISSUNEXA_POSTGRES_PASSWORD in .env}
+      ISSUNEXA_DB_USERNAME: ${ISSUNEXA_DB_USERNAME:-issunexa_runtime}
+      ISSUNEXA_DB_PASSWORD: ${ISSUNEXA_DB_PASSWORD:?Set ISSUNEXA_DB_PASSWORD in .env}
+      ISSUNEXA_FLYWAY_USERNAME: ${ISSUNEXA_FLYWAY_USERNAME:-issunexa_migrator}
+      ISSUNEXA_FLYWAY_PASSWORD: ${ISSUNEXA_FLYWAY_PASSWORD:?Set ISSUNEXA_FLYWAY_PASSWORD in .env}
     ports:
       - "127.0.0.1:${ISSUNEXA_BACKEND_PORT:-8080}:8080"
     depends_on:
-      postgres:
-        condition: service_healthy
+      database-bootstrap:
+        condition: service_completed_successfully
 
   frontend:
     build:
