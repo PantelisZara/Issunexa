@@ -64,13 +64,23 @@ The default Compose stack uses local HTTP and loopback host bindings. Sessions a
 
 Requires Git, Docker with Compose/Buildx and internet access for the initial images/dependencies. The full Docker build needs no host Java, Node, Maven or PostgreSQL.
 
+Copy the HTTPS clone URL from this repository's **Code** menu. Replace the placeholder below with that URL and run this one-line assignment:
+
 ```sh
-# Replace the placeholder with the HTTPS URL from this repository's Code menu.
 ISSUNEXA_REPOSITORY_URL='PASTE_HTTPS_CLONE_URL_HERE'
+```
+
+Then paste this block as a whole in the same terminal. It creates a local directory named `Issunexa`, independent of the repository's name:
+
+```sh
 git clone "$ISSUNEXA_REPOSITORY_URL" Issunexa
 cd Issunexa
 cp .env.example .env
-# Edit .env: choose three distinct nonempty local database passwords.
+```
+
+Edit `.env`: choose three distinct, nonempty local database passwords. Then start the stack:
+
+```sh
 docker compose config --quiet
 docker compose up --build -d
 docker compose ps
@@ -118,6 +128,6 @@ E2E uses generated credentials, synthetic accounts and an isolated Compose datab
 | [compose.yaml](compose.yaml) / [compose.e2e.yaml](compose.e2e.yaml) | Local stack and disposable browser-test overlay |
 | [.github/](.github/) | CI workflows and issue/PR templates |
 
-Current scope excludes public registration/password recovery, user administration, attachments, notifications and offline behavior. Comments/history have no edit/delete endpoints; history before migration V8 is not backfilled. Public deployment, TLS, operational backups and multi-instance session/throttle storage need separate work. Planned work is tracked in this repository's Issues tab, without delivery promises.
+Current scope excludes public registration/password recovery, user administration, attachments, notifications and offline behavior. Comments/history have no edit/delete endpoints; history before migration V8 is not backfilled. Public deployment, TLS, operational backups and multi-instance session/throttle storage need separate work. Use this repository's **Issues** tab for planned work; no delivery dates are promised.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the Issue → branch → PR → CI → review → merge workflow.

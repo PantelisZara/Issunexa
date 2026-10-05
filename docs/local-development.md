@@ -6,11 +6,15 @@ The [README](../README.md#run-locally) gives the shortest Docker path. This guid
 
 Install Git and Docker with a running daemon, modern Compose and Buildx. Initial builds need network access for base images and Maven/npm dependencies. Host Java, Node, Maven and PostgreSQL are unnecessary for building/running the Docker stack; the optional account procedure below additionally uses Java 21.
 
-From a clean clone:
+Copy the HTTPS clone URL from this repository's **Code** menu. Replace the placeholder below with that URL and run this one-line assignment:
 
 ```sh
-# Replace the placeholder with the HTTPS URL from this repository's Code menu.
 ISSUNEXA_REPOSITORY_URL='PASTE_HTTPS_CLONE_URL_HERE'
+```
+
+Then paste this block as a whole in the same terminal. It creates a local directory named `Issunexa`, independent of the repository's name:
+
+```sh
 git clone "$ISSUNEXA_REPOSITORY_URL" Issunexa
 cd Issunexa
 cp .env.example .env

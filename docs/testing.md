@@ -69,4 +69,4 @@ For a retained trace, use `npm exec -- playwright show-trace` followed by its ac
 
 All three run independently on pushes to `master`, PRs targeting `master` and manual dispatch. E2E failures upload available HTML reports, traces and screenshots as `playwright-e2e-failure`, retained seven days. Docker image construction skips tests; a successful image build does not imply the suites passed.
 
-[CONTRIBUTING.md](../CONTRIBUTING.md) requires relevant local verification and green CI before reviewed merge. These contribution conventions do not themselves configure branch protection. See this repository's Actions tab for actual results; no static passing badge is used as evidence.
+[CONTRIBUTING.md](../CONTRIBUTING.md) requires relevant local verification and green CI before reviewed merge. These contribution conventions do not themselves configure branch protection. Use this repository's **Actions** tab for actual workflow results; no static passing badge is used as evidence.
