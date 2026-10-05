@@ -46,6 +46,36 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('authentication routes and form', () => {
+    it.each([
+        ['300', 'Too many sign-in attempts. Please wait 300 seconds before trying again.'],
+        [undefined, 'Too many sign-in attempts. Please wait before trying again.'],
+        ['invalid', 'Too many sign-in attempts. Please wait before trying again.'],
+    ])('handles login throttling (%s), clears the password, and only retries on explicit submit', async (delay, message) => {
+        anonymous();
+        fetchMock.mockResolvedValueOnce(Response.json({ status: 429, detail: 'Account existence must stay private.' }, {
+            status: 429, headers: { 'Content-Type': 'application/problem+json', ...(delay ? { 'Retry-After': delay } : {}) },
+        }));
+        renderApp('/login');
+        const user = await fillLogin();
+        await user.click(screen.getByRole('button', { name: /^Sign in$/ }));
+        expect(await screen.findByRole('alert')).toHaveTextContent(message!);
+        expect(screen.getByLabelText('Password')).toHaveValue('');
+        expect(screen.getByLabelText('Email')).toHaveValue('alice@example.test');
+        expect(screen.getByRole('button', { name: /^Sign in$/ })).toBeEnabled();
+        expect(screen.getByLabelText('Current route')).toHaveTextContent('/login');
+        expect(screen.queryByText('Account existence must stay private.')).not.toBeInTheDocument();
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        // No bootstrap refresh or credential replay on 429. A later explicit submit uses the same CSRF metadata.
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+            .mockResolvedValueOnce(Response.json(csrfB)).mockResolvedValueOnce(Response.json(account));
+        await user.type(screen.getByLabelText('Password'), 'synthetic test password');
+        await user.click(screen.getByRole('button', { name: /^Sign in$/ }));
+        expect(await screen.findByText('Welcome, Alice')).toBeVisible();
+        const mutations = fetchMock.mock.calls.filter(([path]) => path === '/api/auth/login');
+        expect(mutations).toHaveLength(2);
+        expect(new Headers(mutations[1]?.[1]?.headers).get(csrfA.headerName)).toBe(csrfA.token);
+    });
+
     it.each(['/', '/app', '/app/tickets', '/app/tickets/new', '/app/tickets/42'])('redirects anonymous %s to an accessible login form', async (path) => {
         anonymous();
         renderApp(path);

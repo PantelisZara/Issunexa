@@ -20,5 +20,6 @@ export default defineConfig({
     projects: [
         { name: 'chromium-desktop', testMatch: 'journeys.spec.ts', use: { ...devices['Desktop Chrome'] } },
         { name: 'chromium-mobile', testMatch: 'mobile.spec.ts', use: { ...devices['Pixel 7'] } },
+        { name: 'chromium-auth-throttle', testMatch: 'auth-throttle.spec.ts', use: { ...devices['Desktop Chrome'] } },
     ],
 });

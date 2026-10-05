@@ -98,6 +98,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (error instanceof ApiError && error.status === 401) {
                     return 'Invalid email or password.';
                 }
+                if (error instanceof ApiError && error.status === 429) {
+                    return error.retryAfterSeconds === undefined
+                        ? 'Too many sign-in attempts. Please wait before trying again.'
+                        : `Too many sign-in attempts. Please wait ${error.retryAfterSeconds} seconds before trying again.`;
+                }
                 if (error instanceof ApiError && error.status === 403) {
                     try {
                         await refreshCsrf();

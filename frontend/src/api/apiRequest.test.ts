@@ -12,6 +12,24 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('apiRequest', () => {
+    it.each(['1', '60', '300', '3600'])('reads safe Retry-After delta-seconds %s without retrying', async (delay) => {
+        fetchMock.mockResolvedValue(Response.json({ status: 429, detail: 'Do not display raw details.' }, {
+            status: 429, headers: { 'Content-Type': 'application/problem+json', 'Retry-After': delay },
+        }));
+        await expect(apiRequest('/api/auth/login', { method: 'POST' })).rejects.toMatchObject({
+            status: 429, retryAfterSeconds: Number(delay),
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([undefined, '0', '-1', '1.5', 'NaN', 'Infinity', '3601', '999999999999999999999',
+        'Mon, 05 Oct 2026 10:00:00 GMT', '60, 120'])('ignores unusable Retry-After %s', async (delay) => {
+        fetchMock.mockResolvedValue(new Response(null, {
+            status: 429, headers: delay === undefined ? {} : { 'Retry-After': delay },
+        }));
+        await expect(apiRequest('/api/auth/login')).rejects.toMatchObject({ status: 429, retryAfterSeconds: undefined });
+    });
+
     it('includes session credentials and parses successful JSON', async () => {
         fetchMock.mockResolvedValue(Response.json({ available: true }));
 

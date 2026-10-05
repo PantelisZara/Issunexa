@@ -1,8 +1,10 @@
 package io.github.panteliszara.issunexa.shared.security;
 
+import io.github.panteliszara.issunexa.auth.LoginThrottledException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -36,6 +38,14 @@ public class SecurityProblemHandler implements AuthenticationEntryPoint, AccessD
             AccessDeniedException exception) throws IOException {
         writeProblem(request, response, HttpStatus.FORBIDDEN, "Forbidden",
                 "Access to this resource is forbidden.");
+    }
+
+    public void loginThrottled(HttpServletResponse response, LoginThrottledException exception) throws IOException {
+        response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()));
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        objectMapper.writeValue(response.getOutputStream(), exception.problemDetail());
     }
 
     private void writeProblem(HttpServletRequest request, HttpServletResponse response,

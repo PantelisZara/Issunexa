@@ -1,10 +1,12 @@
 package io.github.panteliszara.issunexa.auth.api;
 
+import io.github.panteliszara.issunexa.auth.LoginAttemptLimiter;
 import io.github.panteliszara.issunexa.user.UserAccount;
 import io.github.panteliszara.issunexa.user.UserAccountService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -46,18 +48,20 @@ public class AuthenticationController {
     private final SecurityContextRepository securityContextRepository;
     private final LogoutHandler logoutHandler;
     private final UserAccountService userAccountService;
+    private final LoginAttemptLimiter loginLimiter;
 
     public AuthenticationController(AuthenticationManager authenticationManager,
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
             SecurityContextHolderStrategy securityContextHolderStrategy,
             SecurityContextRepository securityContextRepository, LogoutHandler logoutHandler,
-            UserAccountService userAccountService) {
+            UserAccountService userAccountService, LoginAttemptLimiter loginLimiter) {
         this.authenticationManager = authenticationManager;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
         this.securityContextHolderStrategy = securityContextHolderStrategy;
         this.securityContextRepository = securityContextRepository;
         this.logoutHandler = logoutHandler;
         this.userAccountService = userAccountService;
+        this.loginLimiter = loginLimiter;
     }
 
     @GetMapping("/session")
@@ -92,7 +96,8 @@ public class AuthenticationController {
 
     @PostMapping(path = "/login", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Log in", description = "Authenticates email and password and establishes an HTTP session. "
-            + "Rotates the session ID and invalidates the previous CSRF token. Fetch a fresh token after success.")
+            + "Rotates the session ID and invalidates the previous CSRF token. Fetch a fresh token after success. "
+            + "Account failures and source request volume are bounded. On 429, wait for Retry-After before an explicit retry.")
     @Parameter(name = "X-CSRF-TOKEN", in = ParameterIn.HEADER, required = true,
             description = "Token obtained from GET /api/auth/csrf using the same session.",
             schema = @Schema(type = "string"))
@@ -106,12 +111,21 @@ public class AuthenticationController {
                             schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "403", description = "Missing or invalid CSRF token.",
                     content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Sign-in temporarily throttled. No account existence information.",
+                    headers = @Header(name = "Retry-After", description = "Positive integer delay in seconds.",
+                            schema = @Schema(type = "integer", minimum = "1")),
+                    content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<Void> login(@Valid @RequestBody LoginRequest loginRequest,
             HttpServletRequest request, HttpServletResponse response) {
-        Authentication authentication = authenticationManager.authenticate(
-                UsernamePasswordAuthenticationToken.unauthenticated(loginRequest.email(), loginRequest.password()));
+        Authentication authentication;
+        try (var attempt = loginLimiter.beginAccount(loginRequest.email())) {
+            authentication = authenticationManager.authenticate(
+                    UsernamePasswordAuthenticationToken.unauthenticated(loginRequest.email(), loginRequest.password()));
+            attempt.succeeded();
+        }
         sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
         SecurityContext context = securityContextHolderStrategy.createEmptyContext();
         context.setAuthentication(authentication);

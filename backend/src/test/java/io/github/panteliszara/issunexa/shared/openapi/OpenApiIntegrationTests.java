@@ -238,7 +238,7 @@ class OpenApiIntegrationTests {
         for (String path : List.of("/api/auth/login", "/api/auth/logout")) {
             Map<String, Object> success = api.read("$.paths['" + path + "'].post.responses['204']");
             assertThat(success).doesNotContainKey("content");
-            for (String code : path.endsWith("login") ? List.of("400", "401", "403") : List.of("401", "403")) {
+            for (String code : path.endsWith("login") ? List.of("400", "401", "403", "429") : List.of("401", "403")) {
                 assertThat(api.read("$.paths['" + path + "'].post.responses['" + code
                         + "'].content['application/problem+json'].schema['$ref']", String.class))
                         .isEqualTo("#/components/schemas/ProblemDetail");

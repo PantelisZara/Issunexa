@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.shared.web;
 
+import io.github.panteliszara.issunexa.auth.LoginThrottledException;
 import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
 import io.github.panteliszara.issunexa.ticket.TicketAlreadyAssignedException;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
@@ -31,6 +32,14 @@ import java.util.stream.Stream;
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final URI ABOUT_BLANK = URI.create("about:blank");
+
+    @ExceptionHandler(LoginThrottledException.class)
+    public ResponseEntity<ProblemDetail> handleLoginThrottled(LoginThrottledException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(exception.problemDetail());
+    }
 
     @ExceptionHandler(AuthenticatedAccountNotFoundException.class)
     public ProblemDetail handleMissingAuthenticatedAccount(AuthenticatedAccountNotFoundException exception) {

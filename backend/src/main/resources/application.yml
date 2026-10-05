@@ -12,3 +12,17 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+
+# Keep the actual TCP peer available for the explicit login proxy trust check.
+server:
+  forward-headers-strategy: none
+
+issunexa:
+  login-throttle:
+    account-limit: ${ISSUNEXA_LOGIN_ACCOUNT_LIMIT:5}
+    account-window: ${ISSUNEXA_LOGIN_ACCOUNT_WINDOW:5m}
+    source-limit: ${ISSUNEXA_LOGIN_SOURCE_LIMIT:30}
+    source-window: ${ISSUNEXA_LOGIN_SOURCE_WINDOW:1m}
+    max-account-entries: ${ISSUNEXA_LOGIN_MAX_ACCOUNT_ENTRIES:2048}
+    max-source-entries: ${ISSUNEXA_LOGIN_MAX_SOURCE_ENTRIES:512}
+    trusted-proxy: ${ISSUNEXA_LOGIN_TRUSTED_PROXY:}

@@ -10,6 +10,7 @@ FROM (VALUES
     ('requester-a@e2e.invalid', 'E2E Requester A', 'REQUESTER'),
     ('requester-b@e2e.invalid', 'E2E Requester B', 'REQUESTER'),
     ('agent@e2e.invalid', 'E2E Agent', 'AGENT'),
-    ('admin@e2e.invalid', 'E2E Admin', 'ADMIN')
+    ('admin@e2e.invalid', 'E2E Admin', 'ADMIN'),
+    ('throttle@e2e.invalid', 'E2E Throttle', 'REQUESTER')
 ) AS accounts(email, display_name, role);
 COMMIT;

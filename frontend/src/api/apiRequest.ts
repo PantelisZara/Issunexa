@@ -44,7 +44,12 @@ export async function apiRequest(
                 }
             }
         }
-        throw new ApiError(response.status, problem);
+        const delay = response.headers.get('Retry-After');
+        // Our API returns delta-seconds. Ignore dates, invalid and excessive values.
+        const seconds = delay && /^[0-9]+$/.test(delay) ? Number(delay) : undefined;
+        const retryAfter = seconds !== undefined && Number.isSafeInteger(seconds) && seconds > 0 && seconds <= 3600
+            ? seconds : undefined;
+        throw new ApiError(response.status, problem, retryAfter);
     }
 
     if (response.status === 204) {

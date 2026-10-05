@@ -1,6 +1,11 @@
 package io.github.panteliszara.issunexa.shared.security;
 
+import io.github.panteliszara.issunexa.auth.LoginAttemptLimiter;
+import io.github.panteliszara.issunexa.auth.LoginSourceResolver;
+import io.github.panteliszara.issunexa.auth.LoginSourceThrottleFilter;
+import io.github.panteliszara.issunexa.auth.LoginThrottleProperties;
 import jakarta.servlet.DispatcherType;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -23,14 +28,22 @@ import org.springframework.security.web.authentication.session.CompositeSessionA
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfAuthenticationStrategy;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfLogoutHandler;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 
+import java.time.Clock;
 import java.util.List;
 
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
+@EnableConfigurationProperties(LoginThrottleProperties.class)
 public class SecurityConfiguration {
+
+    @Bean
+    public Clock loginThrottleClock() {
+        return Clock.systemUTC();
+    }
 
     @Bean
     public AuthenticationManager authenticationManager(
@@ -78,8 +91,11 @@ public class SecurityConfiguration {
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
             AuthenticationManager authenticationManager, HttpSessionSecurityContextRepository contextRepository,
             HttpSessionCsrfTokenRepository csrfRepository, SecurityContextHolderStrategy holderStrategy,
-            SecurityProblemHandler problemHandler) throws Exception {
+            SecurityProblemHandler problemHandler, LoginAttemptLimiter loginLimiter,
+            LoginSourceResolver loginSourceResolver) throws Exception {
         http.setSharedObject(SecurityContextHolderStrategy.class, holderStrategy);
+        http.addFilterBefore(new LoginSourceThrottleFilter(loginLimiter, loginSourceResolver, problemHandler),
+                CsrfFilter.class);
         http.authenticationManager(authenticationManager)
                 .securityContext(context -> context
                         .requireExplicitSave(true)

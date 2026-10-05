@@ -35,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -46,10 +47,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 import java.util.stream.Stream;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -68,6 +73,7 @@ class AuthenticationIntegrationTests {
 
     private static final String EMAIL = "alice@example.com";
     private static final String PASSWORD = "  correct integration password  ";
+    private static final AtomicLong WINDOWS = new AtomicLong();
     private static final String TICKET_JSON = """
             {"title":"Printer offline","description":"The printer is unreachable.","priority":"HIGH","category":"INCIDENT"}
             """;
@@ -94,9 +100,126 @@ class AuthenticationIntegrationTests {
     @Autowired
     private EntityManager entityManager;
 
+    @MockitoBean(name = "loginThrottleClock")
+    private Clock clock;
+
+    private Instant now;
+
     @BeforeEach
     void createAccount() {
+        // Each case gets fresh windows without disabling the real limiter or sleeping.
+        now = Instant.parse("2026-10-05T10:00:00Z").plusSeconds(WINDOWS.incrementAndGet() * 600);
+        when(clock.instant()).thenReturn(now);
         userAccountService.createUser(EMAIL, "Alice", PASSWORD, UserRole.REQUESTER);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/auth/login;attempt=", "/api;attempt=%s/auth/login", "/api/auth;attempt=%s/login"})
+    void productionFirewallRejectsMatrixLoginVariantsBeforeAuthentication(String path) throws Exception {
+        CsrfState csrf = csrf(null);
+        String originalSessionId = csrf.session().getId();
+        for (int i = 0; i < 35; i++) {
+            String variant = path.contains("%s") ? path.formatted(i) : path + i;
+            MvcResult result = mockMvc.perform(post(variant).session(csrf.session())
+                    .header(csrf.headerName(), csrf.token()).contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(new LoginRequest(EMAIL, PASSWORD))))
+                    .andExpect(status().isBadRequest()).andReturn();
+            assertThat(result.getHandler()).isNull();
+        }
+        assertThat(csrf.session().getId()).isEqualTo(originalSessionId);
+        assertUnauthenticated(mockMvc.perform(get("/api/auth/session").session(csrf.session())));
+        // Firewall rejection does not consume the source budget or break ordinary login.
+        login(csrf, EMAIL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {EMAIL, "missing@example.com"})
+    void wrongAndUnknownCredentialsHaveTheSameThresholdAndAutomaticRecovery(String email) throws Exception {
+        CsrfState csrf = csrf(null);
+        String sessionId = csrf.session().getId();
+        for (int i = 0; i < 5; i++) {
+            assertProblem(mockMvc.perform(loginRequest(csrf.session(), email, "incorrect")
+                    .header(csrf.headerName(), csrf.token())), 401, "Authentication failed", "Invalid email or password.");
+        }
+        assertThrottled(mockMvc.perform(loginRequest(csrf.session(), email, PASSWORD)
+                .header(csrf.headerName(), csrf.token())), 300);
+        assertThat(csrf.session().getId()).isEqualTo(sessionId);
+        assertThat(csrf.session().getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY)).isNull();
+        // Changing the source cannot bypass the account budget; another identifier is independent.
+        assertThrottled(mockMvc.perform(loginRequest(csrf.session(), email, PASSWORD)
+                .with(request -> { request.setRemoteAddr("192.0.2.2"); return request; })
+                .header(csrf.headerName(), csrf.token())), 300);
+        assertProblem(mockMvc.perform(loginRequest(csrf.session(), "other@example.com", PASSWORD)
+                .header(csrf.headerName(), csrf.token())), 401, "Authentication failed", "Invalid email or password.");
+        when(clock.instant()).thenReturn(now.plusMillis(299_001));
+        assertThrottled(mockMvc.perform(loginRequest(csrf.session(), email, PASSWORD)
+                .header(csrf.headerName(), csrf.token())), 1);
+        when(clock.instant()).thenReturn(now.plusSeconds(300));
+        if (email.equals(EMAIL)) {
+            MockHttpSession session = login(csrf, EMAIL);
+            assertThat(session.getId()).isNotEqualTo(sessionId);
+            mockMvc.perform(get("/api/auth/session").session(session)).andExpect(status().isOk());
+            assertForbidden(mockMvc.perform(post("/api/auth/logout").session(session)
+                    .header(csrf.headerName(), csrf.token())));
+            CsrfState fresh = csrf(session);
+            mockMvc.perform(post("/api/auth/logout").session(session)
+                    .header(fresh.headerName(), fresh.token())).andExpect(status().isNoContent());
+        } else {
+            assertProblem(mockMvc.perform(loginRequest(csrf.session(), email, PASSWORD)
+                    .header(csrf.headerName(), csrf.token())), 401, "Authentication failed", "Invalid email or password.");
+        }
+    }
+
+    @Test
+    void successfulLoginClearsAccountFailuresButDoesNotResetSourceVolume() throws Exception {
+        CsrfState csrf = csrf(null);
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(loginRequest(csrf.session(), EMAIL, "incorrect")
+                    .header(csrf.headerName(), csrf.token())).andExpect(status().isUnauthorized());
+        }
+        MockHttpSession session = login(csrf, EMAIL);
+        CsrfState fresh = csrf(session);
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(loginRequest(session, EMAIL, "incorrect")
+                    .header(fresh.headerName(), fresh.token())).andExpect(status().isUnauthorized());
+        }
+        assertThrottled(mockMvc.perform(loginRequest(session, EMAIL, PASSWORD)
+                .header(fresh.headerName(), fresh.token())), 300);
+        // Failed and throttled reauthentication does not erase a valid existing session.
+        mockMvc.perform(get("/api/auth/session").session(session)).andExpect(status().isOk());
+        for (int i = 11; i < 30; i++) {
+            mockMvc.perform(post("/api/auth/login")).andExpect(status().isForbidden());
+        }
+        assertThrottled(mockMvc.perform(post("/api/auth/login")), 60);
+    }
+
+    @Test
+    void sourceBudgetIncludesMalformedBodiesAndCsrfFailuresAndIgnoresSpoofedHeaders() throws Exception {
+        CsrfState csrf = csrf(null);
+        String originalId = csrf.session().getId();
+        for (int i = 0; i < 30; i++) {
+            if (i % 2 == 0) {
+                mockMvc.perform(post("/api/auth/login").header("X-Real-IP", "203.0.113." + i)
+                        .header("X-Forwarded-For", "203.0.113." + i)).andExpect(status().isForbidden());
+            } else {
+                mockMvc.perform(post("/api/auth/login").session(csrf.session())
+                        .header(csrf.headerName(), csrf.token()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                        .andExpect(status().isBadRequest());
+            }
+        }
+        assertThrottled(mockMvc.perform(loginRequest(csrf.session(), EMAIL, PASSWORD)
+                .header(csrf.headerName(), csrf.token())), 60);
+        assertThat(csrf.session().getId()).isEqualTo(originalId);
+        // Bootstrap/session/logout and another source are not blocked by this source budget.
+        csrf(csrf.session());
+        mockMvc.perform(get("/api/auth/session").session(csrf.session())).andExpect(status().isUnauthorized());
+        mockMvc.perform(loginRequest(csrf.session(), EMAIL, PASSWORD)
+                .with(request -> { request.setRemoteAddr("192.0.2.2"); return request; })
+                .header(csrf.headerName(), csrf.token())).andExpect(status().isNoContent());
+        when(clock.instant()).thenReturn(now.plusSeconds(59));
+        assertThrottled(mockMvc.perform(post("/api/auth/login")), 1);
+        when(clock.instant()).thenReturn(now.plusSeconds(60));
+        mockMvc.perform(post("/api/auth/login")).andExpect(status().isForbidden());
     }
 
     @Test
@@ -500,6 +623,13 @@ class AuthenticationIntegrationTests {
 
     private ResultActions assertForbidden(ResultActions response) throws Exception {
         return assertProblem(response, 403, "Forbidden", "Access to this resource is forbidden.");
+    }
+
+    private ResultActions assertThrottled(ResultActions response, long retryAfter) throws Exception {
+        return assertProblem(response, 429, "Too many requests", "Too many sign-in attempts. Please try again later.")
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, Long.toString(retryAfter)))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.instance").value("/api/auth/login"));
     }
 
     private ResultActions assertProblem(ResultActions response, int statusCode, String title, String detail)
