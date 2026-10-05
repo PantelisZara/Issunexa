@@ -1,4 +1,4 @@
-import { useEffect, useState, type SubmitEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { ApiError } from '../api/ApiError';
 import { useAuth } from '../auth/useAuth';
@@ -163,15 +163,23 @@ function TicketLoader({ queryString, navigate }: { queryString: string; navigate
 export function TicketListPage() {
     const [params, setParams] = useSearchParams();
     const location = useLocation();
+    const latestParams = useRef(params);
+    useLayoutEffect(() => { latestParams.current = params; }, [params]);
     const query = readTicketQuery(params);
     const queryString = serializeTicketQuery(query).toString();
 
+    function navigateParams(next: URLSearchParams) {
+        // Router updater callbacks do not queue; compose pending URL edits synchronously.
+        latestParams.current = next;
+        setParams(next);
+    }
+
     function change(name: string, value: string) {
-        const next = serializeTicketQuery(query);
+        const next = serializeTicketQuery(readTicketQuery(latestParams.current));
         if (value) next.set(name, value);
         else next.delete(name);
         next.set('page', '0');
-        setParams(next);
+        navigateParams(next);
     }
 
     return (
@@ -182,11 +190,11 @@ export function TicketListPage() {
                 <Link className="button-link" to="/app/tickets/new"
                     state={{ ticketListUrl: `${location.pathname}${location.search}` }}><span aria-hidden="true">+</span> Create ticket</Link>
             </div>
-            <TicketControls key={query.q} query={query} change={change} reset={() => setParams({})} />
+            <TicketControls key={query.q} query={query} change={change} reset={() => navigateParams(new URLSearchParams())} />
             <TicketLoader key={queryString} queryString={queryString} navigate={(page) => {
-                const next = serializeTicketQuery(query);
+                const next = serializeTicketQuery(readTicketQuery(latestParams.current));
                 next.set('page', String(page));
-                setParams(next);
+                navigateParams(next);
             }} />
         </section>
     );

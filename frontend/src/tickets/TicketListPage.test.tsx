@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -113,6 +113,115 @@ describe('Ticket workspace', () => {
         expect(params().get('size')).toBe('10');
         const request = new URL(String(ticketRequests()[1]?.[0]), 'http://localhost');
         expect(request.searchParams.get('q')).toBe('printer & login');
+    });
+
+    it.each([
+        ['Priority', 'priority', 'HIGH'], ['Status', 'status', 'RESOLVED'],
+        ['Category', 'category', 'SERVICE_REQUEST'], ['Sort by', 'sortBy', 'title'],
+        ['Sort direction', 'direction', 'asc'], ['Tickets per page', 'size', '50'],
+    ])('preserves just-submitted search when %s changes before the next render', async (label, name, value) => {
+        renderWorkspace('?page=3&size=10&status=OPEN');
+        await screen.findByRole('table');
+        await userEvent.type(screen.getByRole('searchbox'), ' printer & login ');
+        expect(params().has('q')).toBe(false);
+        expect(ticketRequests()).toHaveLength(1);
+        const form = screen.getByRole('search', { name: 'Search tickets' });
+        const control = screen.getByLabelText(label);
+
+        // Keep both interactions in one batch to reproduce the stale-render race.
+        act(() => {
+            fireEvent.submit(form);
+            fireEvent.change(control, { target: { value } });
+        });
+
+        await screen.findByRole('table');
+        expect(params().get('q')).toBe('printer & login');
+        expect(params().get(name)).toBe(value);
+        expect(params().get('page')).toBe('0');
+        const request = new URL(String(ticketRequests().at(-1)?.[0]), 'http://localhost').searchParams;
+        expect(request.get('q')).toBe('printer & login');
+        expect(request.get(name)).toBe(value);
+        expect(request.get('page')).toBe('0');
+    });
+
+    it('preserves just-submitted search when pagination changes before the next render', async () => {
+        respondWith(async (url) => {
+            const page = Number(url.searchParams.get('page'));
+            return Response.json(ticketPage({ page, totalPages: 3, totalElements: 51, first: page === 0, last: page === 2 }));
+        });
+        renderWorkspace('?status=OPEN&size=20');
+        await screen.findByRole('table');
+        await userEvent.type(screen.getByRole('searchbox'), 'printer');
+        const form = screen.getByRole('search', { name: 'Search tickets' });
+        const next = screen.getByRole('button', { name: 'Next' });
+
+        act(() => {
+            fireEvent.submit(form);
+            fireEvent.click(next);
+        });
+
+        await screen.findByText('Page 2 · 3 total pages');
+        expect(params().get('q')).toBe('printer');
+        expect(params().get('status')).toBe('OPEN');
+        expect(params().get('page')).toBe('1');
+        expect(new URL(String(ticketRequests().at(-1)?.[0]), 'http://localhost').searchParams.get('q')).toBe('printer');
+    });
+
+    it('does not restore cleared query state when a filter changes before the next render', async () => {
+        renderWorkspace('?q=printer&status=OPEN&sortBy=title&direction=asc&page=2&size=10');
+        await screen.findByRole('table');
+        const clear = screen.getByRole('button', { name: 'Clear filters' });
+        const priority = screen.getByLabelText('Priority');
+
+        act(() => {
+            fireEvent.click(clear);
+            fireEvent.change(priority, { target: { value: 'HIGH' } });
+        });
+
+        await screen.findByRole('table');
+        expect(Object.fromEntries(params())).toEqual({ priority: 'HIGH', sortBy: 'createdAt', direction: 'desc', page: '0', size: '20' });
+        expect(screen.getByRole('searchbox')).toHaveValue('');
+    });
+
+    it('normalizes invalid and repeated URL values before composing rapid updates', async () => {
+        renderWorkspace('?q=first&q=second&status=OPEN&status=CLOSED&priority=INVALID&sortBy=invalid&direction=invalid&page=-1&size=101&unknown=value');
+        await screen.findByRole('table');
+        await userEvent.type(screen.getByRole('searchbox'), ' normalized ');
+        const form = screen.getByRole('search', { name: 'Search tickets' });
+        const priority = screen.getByLabelText('Priority');
+
+        act(() => {
+            fireEvent.submit(form);
+            fireEvent.change(priority, { target: { value: 'HIGH' } });
+        });
+
+        await screen.findByRole('table');
+        expect(Object.fromEntries(params())).toEqual({ q: 'normalized', priority: 'HIGH', sortBy: 'createdAt', direction: 'desc', page: '0', size: '20' });
+        expect(Object.fromEntries(new URL(String(ticketRequests().at(-1)?.[0]), 'http://localhost').searchParams)).toEqual(Object.fromEntries(params()));
+    });
+
+    it('composes rapid edits from the URL restored by browser navigation', async () => {
+        renderWorkspace('?q=printer&status=OPEN&sortBy=title&direction=asc&page=2&size=37');
+        await screen.findByRole('table');
+        await userEvent.selectOptions(screen.getByLabelText('Priority'), 'URGENT');
+        await screen.findByRole('table');
+        await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+        await screen.findByRole('table');
+        expect(params().get('page')).toBe('2');
+        expect(params().has('priority')).toBe(false);
+        const user = userEvent.setup();
+        await user.clear(screen.getByRole('searchbox'));
+        await user.type(screen.getByRole('searchbox'), 'restored');
+        const form = screen.getByRole('search', { name: 'Search tickets' });
+        const priority = screen.getByLabelText('Priority');
+
+        act(() => {
+            fireEvent.submit(form);
+            fireEvent.change(priority, { target: { value: 'HIGH' } });
+        });
+
+        await screen.findByRole('table');
+        expect(Object.fromEntries(params())).toEqual({ q: 'restored', status: 'OPEN', priority: 'HIGH', sortBy: 'title', direction: 'asc', page: '0', size: '37' });
     });
 
     it.each([
