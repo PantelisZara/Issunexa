@@ -8,6 +8,10 @@ The current backend supports creating and retrieving Tickets through a REST API,
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the Issue → branch → PR → CI → review → merge workflow, branch and commit conventions, and verification expectations.
 
+## Engineering documentation
+
+Start with the [architecture overview](docs/architecture.md) for component boundaries, request flow, backend/frontend/security/database guides, and retrospective records of the accepted engineering decisions.
+
 ## Backend baseline
 
 - Java 21
