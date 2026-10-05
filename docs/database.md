@@ -54,7 +54,7 @@ Verify successful Flyway validation/migration and Hibernate startup; check exist
 
 If provisioning fails, its transaction rolls back and the existing objects/data remain intact. Resolve the reported collision/unsupported customization before starting the backend; do not force ownership changes or reset the volume. Keep the backup and existing administrator access until the upgrade is independently reviewed. A privilege rollback, if needed, should be reviewed and applied through that administrator; do not restore a dump over live data merely to reverse ownership.
 
-For a host-run backend, first use the same administrative provisioning against the target database (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` and the four migration/runtime variables), then run `sh backend/database/bootstrap.sh`. Set the five backend variables listed in [README](../README.md#runtime-database-configuration). Never run provisioning against an unrelated database or pass passwords as command-line arguments.
+For a host-run backend, first use the same administrative provisioning against the target database (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` and the four migration/runtime variables), then run `sh backend/database/bootstrap.sh`. Set the five backend variables listed in the [development guide](local-development.md#runtime-database-configuration). Never run provisioning against an unrelated database or pass passwords as command-line arguments.
 
 ### Executable verification
 
@@ -89,7 +89,7 @@ Identity columns generate IDs. SQL constraints enforce relationships and support
 
 ## Local data and verification boundaries
 
-[Compose](../compose.yaml) uses `postgres:18.6` and the `postgres_data` volume mounted at `/var/lib/postgresql`. Normal container shutdown preserves that volume; removing the volume deletes its database data. Credentials and initialization instructions remain in the [README](../README.md#full-stack-docker-environment).
+[Compose](../compose.yaml) uses `postgres:18.6` and the `postgres_data` volume mounted at `/var/lib/postgresql`. Normal container shutdown preserves that volume; removing the volume deletes its database data. Credentials and initialization instructions remain in the [development guide](local-development.md#full-stack-docker-environment).
 
 Backend integration tests use disposable PostgreSQL containers with Testcontainers. Full-stack E2E uses a separate Compose project/volume and generated credentials, with synthetic users inserted after startup migrations. [run-e2e.sh](../frontend/e2e/run-e2e.sh) excludes the normal `.env` and removes its own database volume afterward.
 

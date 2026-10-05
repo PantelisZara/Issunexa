@@ -42,4 +42,4 @@ npm test
 npm run build
 ```
 
-These commands are defined in [package.json](../frontend/package.json). The build type-checks and writes static assets to `dist/`; the [Nginx configuration](../frontend/nginx.conf) serves SPA routes with an HTML fallback while missing static files return `404`. Vitest covers client behavior; `npm run test:e2e` exercises real full-stack Chromium journeys. Setup prerequisites and report inspection remain in the [README](../README.md#end-to-end-tests).
+These commands are defined in [package.json](../frontend/package.json). The build type-checks and writes static assets to `dist/`; the [Nginx configuration](../frontend/nginx.conf) serves SPA routes with an HTML fallback while missing static files return `404`. Vitest covers client behavior; `npm run test:e2e` exercises real full-stack Chromium journeys. Setup prerequisites and report inspection remain in the [testing guide](testing.md#full-stack-browser-journeys).

@@ -1,6 +1,6 @@
 # Architecture
 
-Issunexa is a portfolio help-desk application with a React browser client, a Spring Boot modular monolith and PostgreSQL. This overview describes the current implementation. Local setup and detailed API examples remain in the [README](../README.md); the contribution process is in [CONTRIBUTING.md](../CONTRIBUTING.md).
+Issunexa is a portfolio help-desk application with a React browser client, a Spring Boot modular monolith and PostgreSQL. This overview describes the current implementation. Local setup is in the [development guide](local-development.md); endpoint contracts are in the [API guide](api.md); the contribution process is in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Runtime and request flow
 

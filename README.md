@@ -1,312 +1,123 @@
 # Issunexa
 
-Issunexa is an Issue & Service Management / Help Desk platform being developed as a professional portfolio project.
+Issunexa is a single-maintainer portfolio help-desk application: requesters submit and track support tickets, while agents claim work, move tickets through a defined lifecycle and discuss progress with requesters.
 
-The current backend supports creating and retrieving Tickets through a REST API, backed by PostgreSQL persistence.
+The repository contains a working React interface, a Spring Boot REST API and PostgreSQL persistence. It demonstrates ownership-aware queries, transactional workflow history, session authentication and tests against the real application stack. It is a local development project; no production deployment or adoption is claimed.
 
-## Contributing
+[Run locally](#run-locally) · [Architecture](docs/architecture.md) · [API guide](docs/api.md) · [Security](docs/security.md) · [Testing](docs/testing.md) · [Contributing](CONTRIBUTING.md)
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the Issue → branch → PR → CI → review → merge workflow, branch and commit conventions, and verification expectations.
+## What works today
 
-## Engineering documentation
+- **Requester workspace:** create tickets with priority and category; search, filter, sort and paginate owned tickets; open details and add comments.
+- **Staff workflow:** AGENT and ADMIN can see all tickets, claim an unassigned ticket for themselves and change its status. The lifecycle is `OPEN → IN_PROGRESS → RESOLVED → CLOSED`, with reopening from `RESOLVED` to `IN_PROGRESS`.
+- **Conversation and history:** paginated, append-only comments and structured creation/claim/status events. Ticket changes and their history entries commit together; competing updates return `409` for explicit refresh and retry.
+- **Browser navigation:** login/logout, session restoration after reload, protected routes, URL-based list queries and return navigation. The branded layout adapts to narrow screens.
 
-Start with the [architecture overview](docs/architecture.md) for component boundaries, request flow, backend/frontend/security/database guides, and retrospective records of the accepted engineering decisions.
+Authorization, filtering, ordering, pagination and totals are owned by the backend. ADMIN currently has the same ticket workflow capabilities as AGENT; it does not have a user-administration interface.
 
-## Backend baseline
+## Product views
 
-- Java 21
-- Spring Boot 4.1.1
-- Maven 3.9.16, provided by the included Maven Wrapper
-- Spring MVC and Spring Boot test support
-- Spring Data JPA / Hibernate, PostgreSQL and Flyway
-- Testcontainers with the official `postgres:18.6` image for integration tests
+Actual application captures with the supplied Issunexa branding and synthetic demo accounts/tickets. These are local UI examples, not production activity. [Full gallery and capture context](docs/screenshots/README.md).
 
-Flyway owns schema creation; its first migration creates the `tickets` table. Tickets can be saved and loaded through a Spring Data JPA repository. Hibernate validates the schema (`ddl-auto=validate`), and Open EntityManager in View is disabled.
+![Ticket workspace with synthetic support tickets, filters and assignment status](docs/screenshots/ticket-workspace.jpg)
 
-Ticket updates use JPA optimistic locking. Conflicting updates return `409` Problem Details so clients can reload and retry.
+![Ticket detail with staff workflow, comments and lifecycle history](docs/screenshots/ticket-detail.jpg)
 
-## Full-stack Docker environment
+## Technology and purpose
 
-Requires Git and Docker with modern `docker compose` and Buildx support (included with Docker Desktop). No host Node, Java, Maven or PostgreSQL installation is needed. On Linux, ensure the Compose and Buildx CLI plugins are installed. Initial builds need internet access for images and npm/Maven dependencies.
+| Technology | Role in this implementation |
+| --- | --- |
+| Java 21 / Spring Boot 4.1.1 | One backend application; Spring MVC REST endpoints, validation and transactional services |
+| Spring Security | Database-backed password authentication, server-side sessions, CSRF and role checks |
+| Spring Data JPA / Hibernate | Entity mapping, queries and optimistic locking; schema validation with Open EntityManager in View disabled |
+| PostgreSQL 18.6 / Flyway | Relational constraints and persistent data; versioned SQL migrations and explicit runtime grants |
+| React / TypeScript / React Router | Ticket UI, runtime-validated API responses, protected routes and URL query state |
+| Vite / Nginx | Development server and build; compiled SPA serving and same-origin `/api` proxy in Docker |
+| Maven Wrapper / npm lockfile | Backend build and reproducible frontend dependency installation; CI uses Node 24.21.0 |
+| springdoc-openapi | Generated OpenAPI contract and Swagger UI for the running backend |
+| JUnit / Testcontainers / Vitest / Playwright | Backend, frontend and real-stack browser verification, described below |
 
-From the repository root, create `.env` only if it does not already exist:
+## Architecture
 
-```sh
-cp .env.example .env
-# Set the three password fields in .env to distinct local passwords.
-docker compose up --build -d
-docker compose ps
+Issunexa is a **modular monolith**: `auth`, `user`, `ticket`, comment/history and shared infrastructure packages run in one Spring application and share one database/transaction manager. These are package boundaries; module isolation is not enforced and business services are not independently deployed.
+
+```mermaid
+flowchart LR
+    Browser["React browser client"] -->|"Session cookie + CSRF on writes"| Nginx["Nginx: SPA + /api proxy"]
+    Nginx --> Backend["Spring Boot modular monolith"]
+    Backend --> Database["PostgreSQL; Flyway migrations"]
 ```
 
-Open **http://localhost:3000** with the default frontend settings. The Docker frontend serves the production React build; Vite does not need to run. Use an internally provisioned account, as described under Authentication; the stack does not seed demo users.
+Controllers validate input and map explicit DTOs; services enforce ownership and workflow rules; repositories persist data. In Vite development, its proxy replaces Nginx for API traffic. See the [architecture overview](docs/architecture.md), [backend](docs/backend.md), [frontend](docs/frontend.md), [database](docs/database.md) and [accepted decisions](docs/decisions/001-modular-monolith.md).
 
-An absent or empty bootstrap, migration or runtime password stops Compose with a configuration error. `.env` is ignored; preserve existing local credentials. Frontend builds use Node 24.21.0 and `npm ci` with the lockfile. The runtime contains only compiled frontend files and official Alpine Nginx, running as a non-root user with a read-only filesystem and temporary writable storage. The backend uses the Maven Wrapper and a non-root Java 21 runtime. Image construction skips tests; the normal Maven and CI workflows still run the full suite.
+## Authentication and security
 
-The browser uses one frontend origin: **browser → frontend Nginx → `/api/...` → `backend:8080` → PostgreSQL**. Nginx preserves relative API paths, session cookies and CSRF headers without CORS or cookie rewriting. React Router routes fall back to `index.html`; missing static assets return `404`. Vite fingerprinted assets receive long-lived caching; HTML and unversioned public files require revalidation. API responses are not cached by Nginx.
+- **Server-side sessions:** email/password login uses a delegating BCrypt password encoder. Login changes the session ID; logout invalidates it. The frontend keeps account/CSRF state in memory and restores it from the backend.
+- **CSRF protection:** fetch session-bound metadata before login and send the returned header on writes, including logout. Fetch a fresh token after login; login itself is CSRF-protected.
+- **Authorization and ownership:** requesters only see their own tickets, comments and history; hidden and missing tickets share a `404` response. Staff-only claims/status changes check roles in the service, including the current persisted role. Client route guards are presentation controls.
+- **Login throttling:** bounded account-failure and source-request windows return generic `429` responses with `Retry-After`. State is process-local. The Compose proxy explicitly controls the source header; arbitrary forwarded headers are not trusted.
+- **Database privilege separation:** bootstrap administration, Flyway schema ownership and JPA runtime access use distinct roles. Runtime cannot perform schema administration, delete/truncate data or access Flyway history. Migration credentials remain available to the backend process at startup.
 
-PostgreSQL 18.6 must pass its health check before `database-bootstrap` provisions distinct migration and runtime roles. The backend starts only after that step succeeds, connects through the Compose service name `postgres`, applies Flyway V1–V9 with the migration role, and validates the schema with Hibernate using the restricted runtime role. See [database provisioning and existing-installation upgrades](docs/database.md#database-roles-and-provisioning) before upgrading an existing volume. Data lives in the `postgres_data` named volume at `/var/lib/postgresql`, the PostgreSQL 18 volume layout.
+The default Compose stack uses local HTTP and loopback host bindings. Sessions and throttling have no shared multi-instance store. See [security contracts, proxy assumptions and limitations](docs/security.md) and [database provisioning](docs/database.md#database-roles-and-provisioning).
 
-The frontend can start before the backend and resolves it through Docker DNS on API requests. Its healthcheck verifies static serving only; it does **not** establish backend readiness. The backend has no dedicated health endpoint. Wait for successful backend startup in the logs and verify the existing safe endpoint through the frontend:
+## Run locally
+
+Requires Git, Docker with Compose/Buildx and internet access for the initial images/dependencies. The full Docker build needs no host Java, Node, Maven or PostgreSQL.
 
 ```sh
+# Replace the placeholder with the HTTPS URL from this repository's Code menu.
+ISSUNEXA_REPOSITORY_URL='PASTE_HTTPS_CLONE_URL_HERE'
+git clone "$ISSUNEXA_REPOSITORY_URL" Issunexa
+cd Issunexa
+cp .env.example .env
+# Edit .env: choose three distinct nonempty local database passwords.
+docker compose config --quiet
+docker compose up --build -d
+docker compose ps
+docker compose logs backend
+# After backend startup, verify the API through the frontend:
 curl --fail http://localhost:3000/api/auth/csrf
 ```
 
-An early API request may receive `502` while the backend starts; retry once it is ready. Both backend and PostgreSQL host ports remain bound to `127.0.0.1`. With default settings:
+Open [the UI](http://localhost:3000), [Swagger UI](http://localhost:8080/swagger-ui.html) or [OpenAPI JSON](http://localhost:8080/v3/api-docs). The frontend's static health check alone does not prove API readiness; an early request can return `502` while the backend starts.
 
-- Frontend: `http://localhost:3000`.
-- Backend API / local development tools: `http://localhost:8080`.
-- OpenAPI JSON: `http://localhost:8080/v3/api-docs`.
-- Swagger UI: `http://localhost:8080/swagger-ui.html`.
-- Local PostgreSQL tools: `127.0.0.1:5432`, with the database/user/password from `.env`.
+**A fresh database has no accounts.** There is no public registration API. To sign in, follow [local demo-account provisioning](docs/local-development.md#local-demo-accounts), which uses Java 21 and the existing internal account service. Keep `.env` private; do not overwrite it on an existing installation. `docker compose down` preserves database data.
 
-Set `ISSUNEXA_FRONTEND_PORT`, `ISSUNEXA_BACKEND_PORT` or `ISSUNEXA_POSTGRES_PORT` in `.env` if a default port is occupied. Use the configured port in URLs. The frontend defaults to `ISSUNEXA_FRONTEND_BIND_ADDRESS=127.0.0.1` for local-only access.
-
-### Optional iPhone access over Tailscale
-
-Tailscale is optional and is not an Issunexa dependency. For browser access from an iPhone on the same tailnet, set `ISSUNEXA_FRONTEND_BIND_ADDRESS` in the ignored `.env` to the PC's Tailscale IPv4 address, then run `docker compose up --build -d` to recreate the frontend binding. Open `http://<PC-Tailscale-address>:<frontend-port>` on the iPhone; tailnet access rules must permit the connection. The PC can use that same URL while bound to Tailscale.
-
-Only the frontend needs this binding. Mobile requests reach Nginx, then the backend and database through the Compose network; keep backend and PostgreSQL bound to loopback. Do not commit a machine-specific address. Restore `ISSUNEXA_FRONTEND_BIND_ADDRESS=127.0.0.1` and rerun Compose to return to local-only access.
-
-Useful commands:
+For hot-reload development, use Node 24.21.0 and keep the backend on port 8080:
 
 ```sh
-docker compose up --build
-docker compose up --build -d
-docker compose logs -f backend frontend
-docker compose ps
-docker compose down
-```
-
-`docker compose down` preserves database data. **`docker compose down -v` also deletes the named PostgreSQL volume and all local database data.** PostgreSQL initialization settings apply only to an empty volume; editing the password in `.env` does not change an existing database user's password.
-
-## Frontend development
-
-The React frontend lives in `frontend/`. Use **Node 24 LTS, version 24.15.0 or newer within Node 24**, and npm. It provides session login, logout, reload restoration, and a protected Ticket workspace at `/app/tickets`; `/app` redirects there. Authenticated users can create Tickets at `/app/tickets/new` and view details at `/app/tickets/:id`. The branded application header keeps Tickets navigation, account identity and sign-out available across Ticket pages.
-
-The interface uses a system-font stack and a small CSS token set in `src/index.css`: neutral surfaces, the supplied purple accent, shared fields/actions and explicit feedback colors. Ticket-specific layouts live in `src/tickets/tickets.css`. The same native Ticket table adapts into labelled rows on narrow screens, without a second data path. Comments and lifecycle history sit alongside each other where space permits and stack on smaller screens. Focus indicators, labelled controls, textual status/priority values and reduced-motion styles are shared across pages.
-
-Original supplied branding is preserved in `frontend/branding/`; browser assets are unchanged copies in `frontend/public/branding/`. The full SVG wordmark appears on login and the desktop application header; the supplied X mark is used in compact headers and the favicon. See [the branding inventory](frontend/branding/README.md) for variant selection and actual icon dimensions. The web manifest supplies app icons; it does not add offline behavior.
-
-For the separate Vite development workflow, start the backend on port **8080** with `docker compose up --build -d postgres backend` from the repository root, or use the Maven workflow below. Then, in another terminal:
-
-```sh
+# Repository root, after .env setup:
+docker compose up --build -d postgres backend
+# In another terminal, from the repository root:
 cd frontend
 npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite (normally `http://localhost:5173`). Vite forwards relative `/api` requests to `http://localhost:8080`; no backend CORS changes are needed. This proxy is for development only. The frontend shell can load without the backend, but API requests require it.
+Vite normally serves `http://localhost:5173` and proxies `/api` to the backend. [The setup guide](docs/local-development.md) covers readiness, port changes, host-run Java, account provisioning and cleanup; [database docs](docs/database.md) cover existing-volume upgrades.
 
-Verification commands, from `frontend/`:
+## Testing and CI
 
-```sh
-npm run lint
-npm test
-npm run build
-```
-
-`npm test` runs Vitest once; `npm run test:watch` watches for changes. The production build type-checks before writing `dist/`. Commit the npm lockfile when reviewing changes; generated dependencies, build output and coverage stay ignored.
-
-Routed UI tests should wait for page-specific content and scope ambiguous assertions to the Ticket page. Authentication bootstrap, the account shell and route diagnostics can expose overlapping status roles or text.
-
-### Continuous integration
-
-Pushes and pull requests targeting `master`, plus manual runs, independently execute three GitHub Actions workflows:
-
-- `Backend CI`: Java 21, Maven `verify`, and Spring Boot/PostgreSQL integration tests with Testcontainers.
-- `Frontend CI`: Node 24.21.0, `npm ci`, lint, E2E TypeScript checks, Vitest and the production build; no backend services are required.
-- `E2E CI`: Node 24.21.0 and the same local `npm run test:e2e` command, exercising Chromium journeys against the real Dockerized Nginx frontend, Spring Boot backend and PostgreSQL.
-
-E2E failures upload the Playwright HTML report, traces and screenshots when available as `playwright-e2e-failure` in the GitHub Actions run, retained for seven days. The E2E script owns cleanup of its disposable Docker resources.
-
-### End-to-end tests
-
-Vitest covers frontend components and integration within the frontend. Playwright covers nine real full-stack browser journeys through the production Nginx frontend, `/api` proxy, Spring Boot and PostgreSQL: authentication/session, requester creation/comments/history, ownership isolation, agent workflow, a representative admin action, query-state preservation, mobile usability, generic login throttling for existing/unknown identifiers, and source limits/proxy-header spoofing. See [the login policy](docs/security.md#bounded-login-attempts) for limits, recovery and proxy assumptions.
-
-Use Node 24 for project/npm tooling and a running Docker daemon with Compose and Buildx (modern Compose supporting the overlay's `!reset` tag). After `npm ci`, run from `frontend/`:
-
-```sh
-npm run test:e2e
-```
-
-This command builds the existing application services plus a test runner based on the [official Playwright Docker image](https://playwright.dev/docs/docker), with the exact installed Playwright version (`1.63.0`, `mcr.microsoft.com/playwright:v1.63.0-noble`). Node 24.21.0 is supplied to the runner. No host browser libraries or system installation are needed. Each invocation uses a unique `issunexa-e2e-*` Compose project, a generated temporary database password, a fresh PostgreSQL volume, and five explicitly synthetic accounts (including one dedicated to throttling). The normal `.env` and normal database volume are unused; inherited login-limit overrides are cleared so tests use the documented defaults. No service ports are published; browser traffic stays on the isolated Compose network and targets Nginx. Readiness checks validate `/api/auth/csrf` through Nginx before provisioning accounts and running tests. Tickets are created through the UI.
-
-The suite uses one worker, zero retries, desktop Chromium and one Pixel 7 Chromium mobile-emulation test. Tests have independent browser sessions and unique Ticket names. `npm run typecheck:e2e` checks the test sources. `npm run test:e2e:headed` runs the same disposable workflow with headed Chromium under a virtual display inside Docker; inspect failures through the artifacts rather than expecting a host desktop window. Playwright CLI options can be forwarded, for example `npm run test:e2e -- --project=chromium-desktop`.
-
-The HTML report is written to `frontend/e2e-artifacts/playwright-report/`; failed tests retain screenshots and traces under `frontend/e2e-artifacts/test-results/`. The parent is ignored and mounted writable so Playwright can recreate its output directories, including on NTFS. Reports/results are replaced by subsequent test runs. Inspect the report with `npm exec -- playwright show-report e2e-artifacts/playwright-report`, or a trace with `npm exec -- playwright show-trace <trace.zip>`. Failure prints recent service logs, preserves the failing process exit code, and still removes that invocation's containers, network, database volume, temporary credentials and project image tags. Docker build cache and downloaded base images remain available. Interrupted runs also attempt cleanup.
-
-This coverage is Chromium only. Mobile emulation is not physical iPhone/Safari testing. There are no Firefox, WebKit or screenshot-baseline tests.
-
-The build uses stable TypeScript 7 through the `@typescript/native` npm alias. ESLint needs the older compiler API, so `typescript` aliases Microsoft's `@typescript/typescript6` compatibility package, following the [official side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60). The `tsc` build command still runs TypeScript 7.
-
-API calls use `src/api/apiRequest.ts` with relative `/api/...` paths and session credentials. JSON is returned as `unknown` unless the caller supplies a narrowing decoder; empty success responses return `undefined`. HTTP failures become `ApiError` with optional structured Problem Details. Authentication decoders validate the CSRF and current-session responses. No frontend environment variables are needed; never put secrets in browser-visible `VITE_` variables.
-
-The root routes through protected `/app`; anonymous users reach `/login`. Bootstrap fetches CSRF before probing the session. Login obtains fresh CSRF before loading the authenticated account; logout invalidates the backend session before preparing fresh anonymous CSRF. Tokens and account state stay in memory, and the browser manages its session cookie. A failed post-login refresh offers a session retry without replaying credentials; a failed refresh after successful logout keeps the user signed out. Use an internally provisioned account: registration, password reset and demo accounts are not provided.
-
-The Ticket workspace uses `GET /api/tickets` with runtime validation of Ticket fields, nullable assignees and explicit page metadata. Applied search, status, priority, category, sort, page and size live in the URL, so links and browser navigation restore the list controls. Search runs on explicit submission; filter, search, sort and size changes reset the zero-based page to `0`. Clear filters restores all defaults and clears search. Invalid or repeated URL parameters fall back to supported defaults before requests; unsupported URL keys are ignored. The backend owns visibility, filtering, sorting and totals; React displays the returned page without reprocessing Tickets. Loading, empty and safe error states include recovery controls. A Ticket request returning `401` clears the authenticated account and stale CSRF metadata, redirects to login and reacquires CSRF on the next explicit login attempt.
-
-Creation sends only title, description, priority and category to `POST /api/tickets`, using the current in-memory CSRF token and server-supplied header name. Title is required with a 255-character limit; description is required without an additional client length limit. The server controls initial status, identity, requester, assignee and timestamps. Fields remain available after errors; backend field validation is mapped to safe frontend messages. A `403` prepares CSRF refresh for the next explicit submit, without automatically replaying the POST. After a decoded success, the server-provided Ticket ID selects the detail route, which loads fresh data through `GET /api/tickets/{id}`. Uncertain creation outcomes ask the user to check the list before retrying.
-
-Details display title, description, status, priority, category, assignee and created/updated timestamps. Missing and inaccessible Tickets share the same `404` state; the frontend never guesses ownership. Loading and safe error states support Retry, and superseded or abandoned requests cannot update the active page. List-to-detail and list-to-create navigation preserve the list URL in React Router state for Back/Cancel links; directly opened pages fall back to `/app/tickets`.
-
-AGENT and ADMIN see self-claim for unassigned Tickets and status actions matching the existing backend transitions. REQUESTER sees no workflow controls; backend authorization remains authoritative for every request. Claim sends no body, and status changes send only `status`, using the current session CSRF metadata. Successful responses are runtime-decoded and replace the displayed Ticket without fabricating assignment, status or timestamps. Versioning is internal to the backend; the API exposes no client version field. A `409` blocks actions until an explicit Refresh loads current details. Uncertain outcomes also require refresh. The backend uses the same generic `403` for authorization and CSRF failures: the UI shows a safe message and refreshes CSRF only on the next explicit action, never automatically replaying a mutation. Active `401` responses expire the frontend session. No reassignment or Ticket edit/delete controls are implemented.
-
-Ticket details include separate paginated Comments and Lifecycle history sections with independent loading, refresh and recovery controls. Users who can access a Ticket can append plain text comments of up to 4,000 characters in any Ticket status. Comments show author, body and creation time, oldest first; they cannot be edited or deleted. A confirmed save displays server data and opens the newest comments page. Failed submissions retain the draft; uncertain outcomes require refreshing and checking comments before another explicit submission.
-
-Lifecycle history displays recorded creation, status-change and claim events with their actors and timestamps, newest first. Successful claim/status actions refresh history without resetting the comment draft. Comments are separate from lifecycle events. Earlier Ticket activity may not have been recorded; the UI does not invent missing history.
-
-## Non-Docker prerequisites
-
-- JDK 21. Set `JAVA_HOME` to its installation directory and put its `bin` directory on `PATH`.
-- Internet access for the initial Maven, dependency and container image downloads.
-- A running Docker-compatible container runtime accessible to Testcontainers for both `test` and `package`.
-- An external PostgreSQL database for normal application startup.
-- On Linux/macOS: a POSIX shell, `curl` or `wget`, and `unzip`.
-- On Windows: PowerShell; use `mvnw.cmd` instead of `./mvnw` in the commands below.
-
-A globally installed Maven is not required. Check that `./mvnw --version` reports Maven 3.9.16 and Java 21 before building.
-
-## Build, test and run
-
-Run from the repository root:
-
-```sh
-cd backend
-./mvnw --version
-./mvnw test
-./mvnw package
-```
-
-The integration tests use disposable PostgreSQL 18.6 containers to verify persistence, database constraints, generated API documentation and session authentication against the Flyway-created schema. Security integration tests use real accounts, password verification and the full filter chain to check login, session fixation protection, CSRF rotation and logout. Assignment and concurrency tests use committed transactions in isolated test databases; other persistence tests roll back their data changes. `@ServiceConnection` supplies connection details automatically; runtime database environment variables are not needed for tests. Testcontainers stops and removes the containers after the tests.
-
-Service unit tests and MVC controller slice tests run without PostgreSQL. Ticket MVC slices isolate security filters to focus on binding, validation and HTTP contracts; full-context security tests cover authentication and CSRF separately. `package` compiles the application, runs the full test suite and creates an executable JAR. `./mvnw verify` also runs the complete suite, including security integration tests, in CI. The full suite requires the container runtime and fails if it is unavailable.
-
-## Authentication
-
-Authentication uses email, password and an HTTP session cookie. Accounts are provisioned internally; there is no registration API.
-
-| Method | Path | Purpose |
+| Layer | Actual coverage | Run locally |
 | --- | --- | --- |
-| GET | `/api/auth/csrf` | Public endpoint returning `token` and `headerName`; responses must not be cached |
-| GET | `/api/auth/session` | Authenticated account's `id`, canonical `email`, `displayName` and persisted `role`; not cached |
-| POST | `/api/auth/login` | Accepts JSON `email` and `password`; returns `204` on success |
-| POST | `/api/auth/logout` | Invalidates the authenticated session; returns `204` on success |
+| Backend | Entity/service unit tests, MVC binding/validation tests and PostgreSQL integration tests: authentication/CSRF, ownership, workflow/concurrency, comments/history, migrations, privileges and OpenAPI | In `backend/`: `./mvnw --batch-mode --no-transfer-progress verify` (Java 21 + Docker) |
+| Frontend | Vitest/Testing Library tests for sessions, decoded responses, URL queries, forms, workflow and failure recovery; lint, E2E type checks and production build | In `frontend/`: `npm ci`, `npm run lint`, `npm run typecheck:e2e`, `npm test`, `npm run build` (Node 24.21.0) |
+| Full stack | Playwright journeys through real Nginx, Spring Boot and PostgreSQL: login/reload/logout, requester isolation, ticket activity, staff workflow, query navigation, mobile usability and login throttling | In `frontend/`, after `npm ci`: `npm run test:e2e` (Node 24 + Docker/Compose/Buildx) |
 
-Retain the session cookie when fetching a CSRF token and send the token in the returned header name on login. After successful login, retain the updated session cookie and fetch a fresh CSRF token. Unsafe requests, including Ticket creation, comments, claims, status changes and logout, require that token. Fetch a new token again after logout before another login.
+Three independent GitHub Actions workflows—[Backend CI](.github/workflows/backend-ci.yml), [Frontend CI](.github/workflows/frontend-ci.yml) and [E2E CI](.github/workflows/e2e-ci.yml)—run on pushes to `master`, pull requests targeting `master` and manual dispatch. They run the checks above; E2E failures retain available reports/traces/screenshots for seven days. Docker image builds skip tests and do not replace CI verification.
 
-All Ticket endpoints require an authenticated session. GET requests do not require CSRF. Missing authentication returns `401` Problem Details; missing or invalid CSRF returns `403` Problem Details, including on login. Invalid credentials return the same generic `401` response for unknown emails and incorrect passwords. On unsafe requests, CSRF validation runs before the authentication requirement.
+E2E uses generated credentials, synthetic accounts and an isolated Compose database, then cleans up its own resources. Browser coverage is desktop Chromium plus Pixel 7 Chromium emulation; it does not establish Safari/physical-device coverage. [Testing details and diagnostics](docs/testing.md).
 
-New Tickets belong to the authenticated account; clients cannot select a requester.
+## Repository navigation and current limits
 
-| Role | Create | List/get | Change status | Claim unassigned |
-| --- | --- | --- | --- | --- |
-| REQUESTER | Allowed | Own Tickets only | Forbidden (`403`) | Forbidden (`403`) |
-| AGENT | Allowed | All Tickets | Allowed | Allowed |
-| ADMIN | Allowed | All Tickets | Allowed | Allowed |
-
-For REQUESTER, other users' Tickets and historical Tickets without a requester are absent from listings and return the same `404` as missing Tickets. AGENT and ADMIN can view and update the status of historical Tickets. Listing totals reflect only visible, matching Tickets. ADMIN-specific User administration is not implemented yet.
-
-## Ticket API
-
-When the application is running locally, OpenAPI JSON is available at `/v3/api-docs`. Swagger UI is available at `/swagger-ui.html`, which redirects to `/swagger-ui/index.html`.
-
-| Method | Path | Successful response |
-| --- | --- | --- |
-| POST | `/api/tickets` | `201 Created`, Ticket JSON and a `Location` header |
-| GET | `/api/tickets/{id}` | `200 OK` and Ticket JSON |
-| GET | `/api/tickets` | `200 OK`, Ticket content and page metadata |
-| PATCH | `/api/tickets/{id}/status` | `200 OK` and the updated Ticket JSON |
-| POST | `/api/tickets/{id}/claim` | `200 OK` and the updated Ticket JSON |
-| POST | `/api/tickets/{ticketId}/comments` | `201 Created` and Comment JSON |
-| GET | `/api/tickets/{ticketId}/comments` | `200 OK`, Comment content and page metadata |
-| GET | `/api/tickets/{ticketId}/history` | `200 OK`, lifecycle history and page metadata |
-
-Creation accepts `title`, `description`, `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`) and `category`. Title and description must not be blank; title is limited to 255 characters, and priority and category are required. New Tickets start as `OPEN`.
-
-Category is a controlled classification selected at creation: `INCIDENT`, `SERVICE_REQUEST`, `ACCESS_REQUEST` or `OTHER`. It is returned in every Ticket response and cannot be changed. Pre-V9 Tickets migrate to `OTHER` because their original category is unknown. There is no category administration API.
-
-AGENT and ADMIN can claim an unassigned Ticket for themselves with no request body. The authenticated account becomes the assignee; clients cannot select another account. Claiming preserves requester and status. Any repeated claim returns `409`, including a repeat by the same staff account. Ticket responses contain `assignee: null` when unassigned, or an assignee summary with only `id` and `displayName`.
-
-Status changes accept only `status`, for example `PATCH /api/tickets/42/status` with `{"status":"IN_PROGRESS"}`. The allowed transitions are:
-
-- `OPEN → IN_PROGRESS`
-- `IN_PROGRESS → RESOLVED`
-- `RESOLVED → IN_PROGRESS`
-- `RESOLVED → CLOSED`
-
-`CLOSED` is terminal in the current version. All other transitions, including requests for the current status, return `409 Conflict` Problem Details. Missing Tickets return `404`; missing/null status or an unsupported status value returns `400`.
-
-Listing accepts zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`). For example, `GET /api/tickets?page=2&size=10` retrieves the third page. Empty pages return an empty `content` array with page metadata.
-
-Optional listing filters are `status` (`OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`), `priority` (`LOW`, `MEDIUM`, `HIGH`, `URGENT`) and `category` (the four values above). Each accepts a single, case-sensitive value. Filters use AND semantics: `GET /api/tickets?category=INCIDENT&status=OPEN&priority=HIGH&page=0&size=10` returns only matching visible Tickets. Filtering occurs before pagination; omitted filters impose no restriction.
-
-Sorting accepts `sortBy` (`createdAt`, `updatedAt`, `title`) and `direction` (`asc`, `desc`), defaulting to `createdAt` and `desc`. Each accepts one case-sensitive value. For example, `GET /api/tickets?sortBy=title&direction=asc` orders by title ascending, then ID ascending. The ID tie-breaker always uses the selected direction.
-
-Optional `q` performs case-insensitive substring search in title or description. A supplied value must contain non-whitespace text and be at most 100 characters before trimming; surrounding whitespace is trimmed. `%`, `_` and `\` match literally. Search combines with status, priority and category using AND, for example `GET /api/tickets?q=login&category=INCIDENT&status=OPEN&priority=HIGH`.
-
-Invalid input returns `400`; a missing Ticket returns `404`. Errors use `application/problem+json`, with field details for validation failures.
-
-Comments are append-only in the current version. Authenticated users can create and list comments on Tickets they may access: REQUESTER on owned Tickets only, and AGENT/ADMIN on all Tickets, including historical Tickets without a requester. Hidden and missing Tickets return the same `404`. Closed Tickets can receive comments; adding a comment leaves the Ticket's status, requester, assignee, version and timestamps unchanged.
-
-Comment creation accepts only `{"body":"Comment text"}`: nonblank plain text of at most 4000 characters before trimming. Outer whitespace is stripped; internal whitespace and newlines are preserved. The authenticated account is always the author. Responses contain `id`, `body`, `createdAt` and an `author` summary with only `id` and `displayName`.
-
-Comment listing supports zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`), ordered by `createdAt ASC`, then `id ASC`. It returns `content`, `page`, `size`, `totalElements`, `totalPages`, `first` and `last`. There are no comment editing, deletion, search or sorting options.
-
-## Ticket lifecycle history
-
-Successful Ticket creation, status changes and self-claims record `TICKET_CREATED`, `STATUS_CHANGED` and `ASSIGNEE_CLAIMED` entries in the same transaction as the Ticket operation. Entries contain structured event data and the authenticated actor; actor and assignee summaries expose only `id` and `displayName`. Failed operations leave no history entry. History is append-only, with no manual creation, edit or delete API. Comments remain a separate resource and do not create lifecycle entries.
-
-`GET /api/tickets/{ticketId}/history` follows normal Ticket visibility: REQUESTER can view owned Tickets only; AGENT/ADMIN can view all Tickets, including historical Tickets without a requester. Hidden and missing Tickets return the same `404`. History is ordered newest-first by `createdAt DESC`, then `id DESC`, with zero-based `page` (default `0`) and `size` (default `20`, range `1`–`100`). There are no history sort, filter or search controls.
-
-History recording begins with V8. Earlier activity is not backfilled: existing Tickets may have incomplete history or no creation entry. This is lifecycle history, not a complete record of activity before V8.
-
-## Runtime database configuration
-
-First provision the [database roles](docs/database.md#database-roles-and-provisioning), then provide these environment variables for an existing PostgreSQL database:
-
-| Variable | Purpose |
+| Path | Contents |
 | --- | --- |
-| `ISSUNEXA_DB_URL` | JDBC URL, for example `jdbc:postgresql://localhost:5432/issunexa` |
-| `ISSUNEXA_DB_USERNAME` | Restricted runtime username |
-| `ISSUNEXA_DB_PASSWORD` | Runtime password |
-| `ISSUNEXA_FLYWAY_USERNAME` | Migration/schema-owner username |
-| `ISSUNEXA_FLYWAY_PASSWORD` | Migration password; Flyway uses the same JDBC URL |
+| [backend/](backend/) | REST API, domain/services, migrations, provisioning, tests and Maven Wrapper |
+| [frontend/](frontend/) | React client, official branding, Vitest/Playwright tests and Nginx configuration |
+| [docs/](docs/) | Architecture, security, database, API, setup, testing and decision records |
+| [compose.yaml](compose.yaml) / [compose.e2e.yaml](compose.e2e.yaml) | Local stack and disposable browser-test overlay |
+| [.github/](.github/) | CI workflows and issue/PR templates |
 
-There are no default credentials. Keep local credentials outside source control.
+Current scope excludes public registration/password recovery, user administration, attachments, notifications and offline behavior. Comments/history have no edit/delete endpoints; history before migration V8 is not backfilled. Public deployment, TLS, operational backups and multi-instance session/throttle storage need separate work. Planned work is tracked in this repository's Issues tab, without delivery promises.
 
-From `backend/`, run:
-
-```sh
-./mvnw spring-boot:run
-```
-
-Or run the packaged application:
-
-```sh
-java -jar target/issunexa-0.0.1-SNAPSHOT.jar
-```
-
-The application uses Spring Boot's default HTTP port, `8080`. OpenAPI and Swagger UI remain publicly accessible. Stop the application with `Ctrl+C`.
-
-## Repository structure
-
-```text
-.
-├── .editorconfig          # Shared formatting rules
-├── .gitignore            # Generated and local files
-├── .env.example          # Local Compose configuration template; no password
-├── compose.yaml          # Frontend, backend and PostgreSQL local environment
-├── frontend/             # React/Vite, tests, Dockerfile, .dockerignore and nginx.conf
-├── README.md
-└── backend/
-    ├── Dockerfile        # Maven build and non-root Java 21 runtime
-    ├── .dockerignore     # Excludes local files from the build context
-    ├── .mvn/wrapper/     # Maven Wrapper configuration
-    ├── mvnw              # Linux/macOS wrapper
-    ├── mvnw.cmd          # Windows wrapper
-    ├── pom.xml           # Backend build and dependencies
-    └── src/
-        ├── main/         # Application, Ticket API/model and migrations
-        └── test/         # Service, MVC and PostgreSQL tests
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the Issue → branch → PR → CI → review → merge workflow.
