@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Size;
 
 public record CreateTicketRequest(
         @NotBlank @Size(max = 255) String title,
-        @NotBlank String description,
+        @NotBlank @Size(max = 10000) String description,
         @NotNull TicketPriority priority,
         @NotNull TicketCategory category
 ) {
