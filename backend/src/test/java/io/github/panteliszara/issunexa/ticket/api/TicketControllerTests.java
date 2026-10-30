@@ -118,6 +118,32 @@ class TicketControllerTests {
         verify(ticketService).createTicket(title, "The office printer is unreachable.", TicketPriority.HIGH, TicketCategory.INCIDENT, EMAIL);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("descriptionsAtLimit")
+    void createsTicketWithDescriptionAtUtf16Limit(String scenario, String description) throws Exception {
+        Ticket ticket = persistedTicket("Printer", TicketStatus.OPEN);
+        ticket.updateDetails("Printer", description);
+        when(ticketService.createTicket("Printer", description, TicketPriority.HIGH, TicketCategory.INCIDENT, EMAIL))
+                .thenReturn(ticket);
+
+        mockMvc.perform(post("/api/tickets").principal(() -> EMAIL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"Printer","description":"%s","priority":"HIGH","category":"INCIDENT"}
+                                """.formatted(description)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.description").value(description));
+
+        verify(ticketService).createTicket("Printer", description, TicketPriority.HIGH, TicketCategory.INCIDENT, EMAIL);
+    }
+
+    static Stream<Arguments> descriptionsAtLimit() {
+        return Stream.of(
+                Arguments.of("10000 ASCII code units", "d".repeat(10000)),
+                Arguments.of("5000 supplementary code points use 10000 UTF-16 code units", "\uD83D\uDE00".repeat(5000))
+        );
+    }
+
     @Test
     void derivesRequesterOnlyFromPrincipalDespiteClientSuppliedIdentity() throws Exception {
         when(ticketService.createTicket("Printer offline", "The office printer is unreachable.",
@@ -396,6 +422,12 @@ class TicketControllerTests {
                 Arguments.of("blank description", """
                         {"title":"Title","description":" ","priority":"HIGH","category":"INCIDENT"}
                         """, "description"),
+                Arguments.of("description longer than 10000 UTF-16 code units", """
+                        {"title":"Title","description":"%s","priority":"HIGH","category":"INCIDENT"}
+                        """.formatted("d".repeat(10001)), "description"),
+                Arguments.of("supplementary description with 10001 UTF-16 code units", """
+                        {"title":"Title","description":"%s","priority":"HIGH","category":"INCIDENT"}
+                        """.formatted("\uD83D\uDE00".repeat(5000) + "d"), "description"),
                 Arguments.of("missing description", """
                         {"title":"Title","priority":"HIGH","category":"INCIDENT"}
                         """, "description"),

@@ -9,7 +9,7 @@ import './tickets.css';
 
 const fieldMessages = {
     title: 'Enter a nonblank title of at most 255 characters.',
-    description: 'Enter a nonblank description.',
+    description: 'Enter a nonblank description of at most 10,000 characters.',
     priority: 'Choose a supported priority.',
     category: 'Choose a supported category.',
 };
@@ -102,9 +102,11 @@ export function TicketCreatePage() {
                 </div>
                 <div className="form-field">
                     <label htmlFor="create-description">Description</label>
-                    <textarea id="create-description" name="description" required rows={7} value={description}
+                    <textarea id="create-description" name="description" required maxLength={10000} rows={7} value={description}
                         onChange={(event) => setDescription(event.target.value)} disabled={disabled}
-                        aria-invalid={!!error?.fields?.description} aria-describedby={error?.fields?.description ? 'description-error' : undefined} />
+                        aria-invalid={!!error?.fields?.description}
+                        aria-describedby={error?.fields?.description ? 'description-hint description-error' : 'description-hint'} />
+                    <p id="description-hint" className="muted">Maximum 10,000 characters. Some symbols count as more than one character.</p>
                     {error?.fields?.description && <p id="description-error" className="field-error">{error.fields.description}</p>}
                 </div>
                 <div className="ticket-form-options">{([

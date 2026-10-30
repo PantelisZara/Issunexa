@@ -44,7 +44,7 @@ When the application is running locally, OpenAPI JSON is available at `/v3/api-d
 | GET | `/api/tickets/{ticketId}/comments` | `200 OK`, Comment content and page metadata |
 | GET | `/api/tickets/{ticketId}/history` | `200 OK`, lifecycle history and page metadata |
 
-Creation accepts `title`, `description`, `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`) and `category`. Title and description must not be blank; title is limited to 255 characters, and priority and category are required. New Tickets start as `OPEN`.
+Creation accepts `title`, `description`, `priority` (`LOW`, `MEDIUM`, `HIGH` or `URGENT`) and `category`. Title and description must not be blank; title is limited to 255 characters, description to 10,000 UTF-16 code units, and priority and category are required. Description length follows Java `String.length()` and JavaScript string/textarea length semantics: a supplementary Unicode code point counts as two code units. New Tickets start as `OPEN`.
 
 Category is a controlled classification selected at creation: `INCIDENT`, `SERVICE_REQUEST`, `ACCESS_REQUEST` or `OTHER`. It is returned in every Ticket response and cannot be changed. Pre-V9 Tickets migrate to `OTHER` because their original category is unknown. There is no category administration API.
 

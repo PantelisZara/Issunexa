@@ -82,6 +82,37 @@ describe('Ticket creation', () => {
         expect(screen.getByRole('button', { name: 'Sign out' })).toBeVisible();
     });
 
+    it('describes the description limit accessibly and preserves required input', async () => {
+        renderAt();
+        const user = await fillForm();
+        const description = screen.getByRole('textbox', { name: 'Description' });
+        expect(description).toHaveAttribute('maxlength', '10000');
+        expect(description).toBeRequired();
+        expect(description).toHaveAccessibleDescription('Maximum 10,000 characters. Some symbols count as more than one character.');
+        await user.clear(description);
+        await user.click(screen.getByRole('button', { name: 'Create ticket' }));
+        expect(description).toBeInvalid();
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['ASCII', 'd'.repeat(10000)],
+        ['supplementary Unicode', '\uD83D\uDE00'.repeat(5000)],
+    ])('accepts %s at the UTF-16 limit and prevents an extra code unit', async (_scenario, value) => {
+        renderAt();
+        const user = await fillForm();
+        const description = screen.getByRole('textbox', { name: 'Description' });
+        await user.clear(description);
+        await user.click(description);
+        await user.paste(value);
+        await user.type(description, 'd');
+        expect(description).toHaveValue(value);
+        await user.click(screen.getByRole('button', { name: 'Create ticket' }));
+        await screen.findByRole('heading', { name: ticket.title });
+        expect(createMock).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(createMock.mock.calls[0]?.[0]?.body)).description).toBe(value);
+    });
+
     it('submits current CSRF once, then loads the server-created ID through the detail API', async () => {
         renderAt();
         const user = await fillForm();
@@ -123,7 +154,10 @@ describe('Ticket creation', () => {
         await user.click(screen.getByRole('button', { name: 'Create ticket' }));
         expect(await screen.findByRole('alert')).toHaveTextContent('Check the ticket fields');
         expect(screen.getByLabelText('Title')).toHaveAccessibleDescription('Enter a nonblank title of at most 255 characters.');
-        expect(screen.getByLabelText('Description')).toHaveAccessibleDescription('Enter a nonblank description.');
+        expect(screen.getByLabelText('Description')).toHaveAccessibleDescription(
+            'Maximum 10,000 characters. Some symbols count as more than one character. Enter a nonblank description of at most 10,000 characters.',
+        );
+        expect(screen.getByLabelText('Description')).toHaveAttribute('aria-invalid', 'true');
         expect(screen.getByLabelText('Priority')).toHaveAccessibleDescription('Choose a supported priority.');
         expect(screen.getByLabelText('Category')).toHaveAccessibleDescription('Choose a supported category.');
         expect(screen.queryByText(/Internal/)).not.toBeInTheDocument();
