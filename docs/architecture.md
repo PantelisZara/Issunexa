@@ -28,7 +28,7 @@ The backend has one [application entry point](../backend/src/main/java/io/github
 
 ## Build and verification boundaries
 
-The [backend Dockerfile](../backend/Dockerfile) packages a Java 21 runtime and skips tests during image construction. The [frontend Dockerfile](../frontend/Dockerfile) builds with Node 24.21.0 and copies only compiled assets into Nginx. Both application containers run as non-root users.
+The [backend Dockerfile](../backend/Dockerfile) packages a Java 21 runtime and skips tests during image construction. The [frontend Dockerfile](../frontend/Dockerfile) builds with Node 24.22.2 and copies only compiled assets into Nginx. Both application containers run as non-root users.
 
 Three independent workflows run on pushes/PRs targeting `master` and manual dispatch:
 

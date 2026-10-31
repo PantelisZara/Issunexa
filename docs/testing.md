@@ -22,7 +22,7 @@ See [backend test sources](../backend/src/test/java/io/github/panteliszara/issun
 
 ## Frontend
 
-With Node 24.21.0, from the repository root:
+With Node 24.22.2, from the repository root:
 
 ```sh
 cd frontend
@@ -64,8 +64,8 @@ For a retained trace, use `npm exec -- playwright show-trace` followed by its ac
 | Workflow | Actual checks |
 | --- | --- |
 | [Backend CI](../.github/workflows/backend-ci.yml) | Java 21, Maven `verify`, including PostgreSQL/Testcontainers tests |
-| [Frontend CI](../.github/workflows/frontend-ci.yml) | Node 24.21.0, `npm ci`, lint, E2E type checks, Vitest and production build |
-| [E2E CI](../.github/workflows/e2e-ci.yml) | Node 24.21.0, install/type checks, Docker compatibility and the local `npm run test:e2e` command |
+| [Frontend CI](../.github/workflows/frontend-ci.yml) | Node 24.22.2, `npm ci`, lint, E2E type checks, Vitest and production build |
+| [E2E CI](../.github/workflows/e2e-ci.yml) | Node 24.22.2, install/type checks, Docker compatibility and the local `npm run test:e2e` command |
 
 All three run independently on pushes to `master`, PRs targeting `master` and manual dispatch. E2E failures upload available HTML reports, traces and screenshots as `playwright-e2e-failure`, retained seven days. Docker image construction skips tests; a successful image build does not imply the suites passed.
 

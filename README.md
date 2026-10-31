@@ -41,7 +41,7 @@ Actual application captures with the supplied Issunexa branding and synthetic de
 | PostgreSQL 18.6 / Flyway | Relational constraints and persistent data; versioned SQL migrations and explicit runtime grants |
 | React / TypeScript / React Router | Ticket UI, runtime-validated API responses, protected routes and URL query state |
 | Vite / Nginx | Development server and build; compiled SPA serving and same-origin `/api` proxy in Docker |
-| Maven Wrapper / npm lockfile | Backend build and reproducible frontend dependency installation; CI uses Node 24.21.0 |
+| Maven Wrapper / npm lockfile | Backend build and reproducible frontend dependency installation; CI uses Node 24.22.2 |
 | springdoc-openapi | Generated OpenAPI contract and Swagger UI for the running backend |
 | JUnit / Testcontainers / Vitest / Playwright | Backend, frontend and real-stack browser verification, described below |
 
@@ -101,7 +101,7 @@ Open [the UI](http://localhost:3000), [Swagger UI](http://localhost:8080/swagger
 
 **A fresh database has no accounts.** There is no public registration API. To sign in, follow [local demo-account provisioning](docs/local-development.md#local-demo-accounts), which uses Java 21 and the existing internal account service. Keep `.env` private; do not overwrite it on an existing installation. `docker compose down` preserves database data.
 
-For hot-reload development, use Node 24.21.0 and keep the backend on port 8080:
+For hot-reload development, use Node 24.22.2 and keep the backend on port 8080:
 
 ```sh
 # Repository root, after .env setup:
@@ -119,7 +119,7 @@ Vite normally serves `http://localhost:5173` and proxies `/api` to the backend. 
 | Layer | Actual coverage | Run locally |
 | --- | --- | --- |
 | Backend | Entity/service unit tests, MVC binding/validation tests and PostgreSQL integration tests: authentication/CSRF, ownership, workflow/concurrency, comments/history, migrations, privileges and OpenAPI | In `backend/`: `./mvnw --batch-mode --no-transfer-progress verify` (Java 21 + Docker) |
-| Frontend | Vitest/Testing Library tests for sessions, decoded responses, URL queries, forms, workflow and failure recovery; lint, E2E type checks and production build | In `frontend/`: `npm ci`, `npm run lint`, `npm run typecheck:e2e`, `npm test`, `npm run build` (Node 24.21.0) |
+| Frontend | Vitest/Testing Library tests for sessions, decoded responses, URL queries, forms, workflow and failure recovery; lint, E2E type checks and production build | In `frontend/`: `npm ci`, `npm run lint`, `npm run typecheck:e2e`, `npm test`, `npm run build` (Node 24.22.2) |
 | Full stack | Playwright journeys through real Nginx, Spring Boot and PostgreSQL: login/reload/logout, requester isolation, ticket activity, staff workflow, query navigation, mobile usability and login throttling | In `frontend/`, after `npm ci`: `npm run test:e2e` (Node 24 + Docker/Compose/Buildx) |
 
 Three independent GitHub Actions workflows—[Backend CI](.github/workflows/backend-ci.yml), [Frontend CI](.github/workflows/frontend-ci.yml) and [E2E CI](.github/workflows/e2e-ci.yml)—run on pushes to `master`, pull requests targeting `master` and manual dispatch. They run the checks above; E2E failures retain available reports/traces/screenshots for seven days. Docker image builds skip tests and do not replace CI verification.

@@ -31,7 +31,7 @@ Loads use abortable requests and ignore superseded responses. URL state makes ap
 
 ## Build and verification
 
-From the repository root, using Node 24.21.0 to match CI:
+From the repository root, using Node 24.22.2 to match CI:
 
 ```sh
 cd frontend
