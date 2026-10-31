@@ -1,16 +1,23 @@
 import { setTimeout as pollDelay } from 'node:timers/promises';
 
 const url = `${process.env.PLAYWRIGHT_BASE_URL}/api/auth/csrf`;
+const readinessUrl = `${process.env.PLAYWRIGHT_BASE_URL}/api/health/ready`;
 const deadline = Date.now() + 90_000;
 let lastFailure = 'No response yet';
 while (Date.now() < deadline) {
     try {
+        const readiness = await fetch(readinessUrl, { signal: AbortSignal.timeout(6000) });
+        if (!readiness.ok || (await readiness.json()).status !== 'UP') {
+            lastFailure = `Database readiness HTTP ${readiness.status}`;
+            await pollDelay(1000);
+            continue;
+        }
         const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
         if (response.ok) {
             const data = await response.json();
             if (typeof data.token === 'string' && data.token.length > 0
                 && typeof data.headerName === 'string' && data.headerName.length > 0) {
-                console.log('Application ready; CSRF response validated.');
+                console.log('Database readiness and CSRF responses validated.');
                 process.exit(0);
             }
             lastFailure = 'CSRF response did not match the application contract';
