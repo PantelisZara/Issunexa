@@ -1,0 +1,23 @@
+# Opt in only behind an ingress that enforces HTTPS and prevents direct access.
+server:
+  forward-headers-strategy: none
+  servlet:
+    session:
+      timeout: 20m
+      tracking-modes: cookie
+      cookie:
+        secure: true
+        http-only: true
+        same-site: lax
+        path: /
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+issunexa:
+  public-deployment:
+    origin: ${ISSUNEXA_PUBLIC_ORIGIN}
+    ingress: ${ISSUNEXA_PUBLIC_INGRESS:peer}

@@ -2,6 +2,7 @@ package io.github.panteliszara.issunexa.auth;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
@@ -10,10 +11,12 @@ import java.util.Arrays;
 import java.util.Collections;
 
 @Component
+@Profile("!public")
 public class LoginSourceResolver {
 
     private final String trustedProxy;
     private final ProxyAddresses proxyAddresses;
+    private final boolean renderFreeIngress;
 
     @Autowired
     public LoginSourceResolver(LoginThrottleProperties policy) {
@@ -21,25 +24,40 @@ public class LoginSourceResolver {
     }
 
     LoginSourceResolver(String trustedProxy, ProxyAddresses proxyAddresses) {
+        this(trustedProxy, proxyAddresses, false);
+    }
+
+    private LoginSourceResolver(String trustedProxy, ProxyAddresses proxyAddresses, boolean renderFreeIngress) {
         this.trustedProxy = trustedProxy;
         this.proxyAddresses = proxyAddresses;
+        this.renderFreeIngress = renderFreeIngress;
+    }
+
+    public static LoginSourceResolver renderFreeIngress() {
+        return new LoginSourceResolver("", InetAddress::getAllByName, true);
     }
 
     public String resolve(HttpServletRequest request) {
         String peer = request.getRemoteAddr();
-        if (trustedProxy.isBlank()) return peer;
         try {
+            if (renderFreeIngress) return headerOrPeer(request, "CF-Connecting-IP", peer);
+            if (trustedProxy.isBlank()) return peer;
             InetAddress peerAddress = literal(peer);
             if (peerAddress == null || Arrays.stream(proxyAddresses.resolve(trustedProxy))
                     .noneMatch(peerAddress::equals)) return peer;
-            var headers = Collections.list(request.getHeaders("X-Real-IP"));
-            if (headers.size() != 1) return peer;
-            InetAddress client = literal(headers.getFirst());
-            return client == null ? peer : client.getHostAddress();
+            return headerOrPeer(request, "X-Real-IP", peer);
         } catch (UnknownHostException exception) {
-            // DNS failure falls back to a shared peer budget, never to an unverified header.
+            // Invalid addresses or failed proxy DNS use the peer budget, never an unverified header.
             return peer;
         }
+    }
+
+    private static String headerOrPeer(HttpServletRequest request, String header, String peer)
+            throws UnknownHostException {
+        var headers = Collections.list(request.getHeaders(header));
+        if (headers.size() != 1) return peer;
+        InetAddress client = literal(headers.getFirst());
+        return client == null ? peer : client.getHostAddress();
     }
 
     private static InetAddress literal(String value) throws UnknownHostException {

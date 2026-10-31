@@ -87,3 +87,5 @@ Session cookies require CSRF coordination on browser writes, and client route gu
 [Runtime security and jsdom disposition](runtime-security-sec03.md) distinguishes the patched Node-bundled Undici from npm dependencies and jsdom copied code, with current reachability limits and reassessment triggers.
 
 [Development glob assessment](minimatch-assessment-sec04.md) records the newly reported minimatch advisory, its twelve moderate audit entries, scoped current reachability and reassessment triggers; a full-audit zero-finding claim is no longer current.
+
+[Public HTTPS preparation](public-https.md) defines the opt-in cookie, canonical-origin and ingress contract, its startup guards and the live verification still required before public exposure.
