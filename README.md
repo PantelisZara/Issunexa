@@ -114,6 +114,8 @@ npm run dev
 
 Vite normally serves `http://localhost:5173` and proxies `/api` to the backend. [The setup guide](docs/local-development.md) covers readiness, port changes, host-run Java, account provisioning and cleanup; [database docs](docs/database.md) cover existing-volume upgrades.
 
+The [single-service artifact](docs/single-service-artifact.md) additionally packages the compiled UI and API in one Java image for a future same-origin HTTPS deployment. It is verified locally under a 512 MiB limit; managed provisioning and safe public-demo isolation remain unfinished.
+
 ## Testing and CI
 
 | Layer | Actual coverage | Run locally |
@@ -121,6 +123,8 @@ Vite normally serves `http://localhost:5173` and proxies `/api` to the backend. 
 | Backend | Entity/service unit tests, MVC binding/validation tests and PostgreSQL integration tests: authentication/CSRF, ownership, workflow/concurrency, comments/history, migrations, privileges and OpenAPI | In `backend/`: `./mvnw --batch-mode --no-transfer-progress verify` (Java 21 + Docker) |
 | Frontend | Vitest/Testing Library tests for sessions, decoded responses, URL queries, forms, workflow and failure recovery; lint, E2E type checks and production build | In `frontend/`: `npm ci`, `npm run lint`, `npm run typecheck:e2e`, `npm test`, `npm run build` (Node 24.22.2) |
 | Full stack | Playwright journeys through real Nginx, Spring Boot and PostgreSQL: login/reload/logout, requester isolation, ticket activity, staff workflow, query navigation, mobile usability and login throttling | In `frontend/`, after `npm ci`: `npm run test:e2e` (Node 24 + Docker/Compose/Buildx) |
+
+The root artifact also runs seven desktop/mobile journeys and two serving-contract checks with `npm run test:e2e:artifact` from `frontend/`. The E2E workflow runs both container arrangements.
 
 Three independent GitHub Actions workflows—[Backend CI](.github/workflows/backend-ci.yml), [Frontend CI](.github/workflows/frontend-ci.yml) and [E2E CI](.github/workflows/e2e-ci.yml)—run on pushes to `master`, pull requests targeting `master` and manual dispatch. They run the checks above; E2E failures retain available reports/traces/screenshots for seven days. Docker image builds skip tests and do not replace CI verification.
 

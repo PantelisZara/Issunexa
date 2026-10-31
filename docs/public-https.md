@@ -34,3 +34,5 @@ Real embedded-Tomcat/PostgreSQL tests exercise emitted cookie flags, session/CSR
 Before declaring a public deployment verified, test the actual public URL with the official in-app Browser: HTTP redirect, HTTPS cookie/HSTS behavior, sign-in/reload/logout and protected writes. Probe forged CF-Connecting-IP/X-Real-IP/forwarding chains and confirm they cannot select attacker-controlled throttle identities. Verify distinct budgets from independent public source networks, with IPv6 where available. Do not add a public IP diagnostic endpoint to perform those checks. Local tests do not prove the provider's current topology.
 
 The [ADR](decisions/004-public-https-ingress.md) records alternatives, primary provider documentation, cost/operational implications and rollback.
+
+The [single-service artifact](single-service-artifact.md) packages the existing UI and API behind this contract and documents local resource and browser verification. Public-edge acceptance remains required.

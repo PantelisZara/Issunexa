@@ -16,6 +16,7 @@ The [Maven Wrapper](../backend/.mvn/wrapper/maven-wrapper.properties) supplies M
 - Entity/service unit tests cover workflow invariants and transaction coordination; MVC slices cover binding, validation and response contracts. Ticket MVC slices isolate security filters.
 - Full-context tests exercise actual password verification, the security chain, session-ID/CSRF rotation, logout, ownership and persisted-role checks.
 - PostgreSQL 18.6 Testcontainers tests cover persistence, constraints, V1–V9 migration behavior, database privilege separation, concurrent Ticket updates, comments/history and generated OpenAPI.
+- The public-profile JDBC pool test retires all idle connections and reconnects for persisted application work against PostgreSQL.
 - Login budget tests use an injected clock for recovery/concurrency/bounds; integration tests exercise path/proxy trust and authentication contracts.
 
 See [backend test sources](../backend/src/test/java/io/github/panteliszara/issunexa/) and the [database verification details](database.md#executable-verification). Tests use disposable databases; they do not reset the normal Compose volume. The full suite fails without an accessible Docker runtime.
@@ -59,13 +60,17 @@ npm exec -- playwright show-report e2e-artifacts/playwright-report
 
 For a retained trace, use `npm exec -- playwright show-trace` followed by its actual ZIP path. Failures print recent service logs, preserve the failing exit status and still attempt cleanup. A cleanup failure also makes the command fail.
 
+## Single-service artifact
+
+Run `npm run test:e2e:artifact` from `frontend/` to verify the root Java/React image under a 512 MiB memory limit. It reuses the disposable runner and seven desktop/mobile journeys, then checks compiled assets, known-route refresh, cache/security headers and API/missing-asset boundaries in two artifact-specific tests. The Nginx throttle tests remain in the original nine-test command. See [artifact verification and limits](single-service-artifact.md) for the localhost Secure-cookie simulation, cgroup v2 requirement and runtime measurements.
+
 ## GitHub Actions
 
 | Workflow | Actual checks |
 | --- | --- |
 | [Backend CI](../.github/workflows/backend-ci.yml) | Java 21, Maven `verify`, including PostgreSQL/Testcontainers tests |
 | [Frontend CI](../.github/workflows/frontend-ci.yml) | Node 24.22.2, `npm ci`, lint, E2E type checks, Vitest and production build |
-| [E2E CI](../.github/workflows/e2e-ci.yml) | Node 24.22.2, install/type checks, Docker compatibility and the local `npm run test:e2e` command |
+| [E2E CI](../.github/workflows/e2e-ci.yml) | Node 24.22.2, install/type checks, Docker compatibility and both local commands: `npm run test:e2e` and `npm run test:e2e:artifact` |
 
 All three run independently on pushes to `master`, PRs targeting `master` and manual dispatch. E2E failures upload available HTML reports, traces and screenshots as `playwright-e2e-failure`, retained seven days. Docker image construction skips tests; a successful image build does not imply the suites passed.
 

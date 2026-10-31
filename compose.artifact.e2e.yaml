@@ -1,0 +1,20 @@
+# Test the root image directly; no Nginx service and no published ports.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    mem_limit: 512m
+    memswap_limit: 512m
+    environment:
+      SPRING_PROFILES_ACTIVE: public
+      PORT: '9090'
+      ISSUNEXA_PUBLIC_ORIGIN: https://demo.example.invalid
+      ISSUNEXA_PUBLIC_INGRESS: peer
+      ISSUNEXA_LOGIN_TRUSTED_PROXY: ''
+  playwright:
+    # Chromium accepts Secure cookies on localhost for this local HTTP simulation.
+    # Sharing the service network makes localhost reach the actual Java listener.
+    network_mode: service:backend
+    environment:
+      PLAYWRIGHT_BASE_URL: http://localhost:9090

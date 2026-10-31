@@ -1,0 +1,24 @@
+# Only the inputs explicitly needed by the root production build are sent.
+**
+!backend/
+!backend/mvnw
+!backend/pom.xml
+!backend/.mvn/
+!backend/.mvn/**
+!backend/src/
+!backend/src/main/
+!backend/src/main/**
+!frontend/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig*.json
+!frontend/vite.config.ts
+!frontend/index.html
+!frontend/src/
+!frontend/src/**
+!frontend/public/
+!frontend/public/**
+frontend/src/**/*.test.*
+frontend/src/test/
+**/.env
+**/.env.*
