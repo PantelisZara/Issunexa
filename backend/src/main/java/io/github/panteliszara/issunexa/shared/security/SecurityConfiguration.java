@@ -123,6 +123,7 @@ public class SecurityConfiguration {
                                 "/assets/**", "/branding/**", "/site.webmanifest").permitAll();
                     }
                     authorize.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/health/live", "/api/health/ready").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/session").authenticated()

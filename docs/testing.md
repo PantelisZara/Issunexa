@@ -16,6 +16,7 @@ The [Maven Wrapper](../backend/.mvn/wrapper/maven-wrapper.properties) supplies M
 - Entity/service unit tests cover workflow invariants and transaction coordination; MVC slices cover binding, validation and response contracts. Ticket MVC slices isolate security filters.
 - Full-context tests exercise actual password verification, the security chain, session-ID/CSRF rotation, logout, ownership and persisted-role checks.
 - PostgreSQL 18.6 Testcontainers tests cover persistence, constraints, V1–V9 migration behavior, database privilege separation, concurrent Ticket updates, comments/history and generated OpenAPI.
+- Real-server health probes verify database login failure/recovery, session-free minimal responses and database-independent liveness.
 - The public-profile JDBC pool test retires all idle connections and reconnects for persisted application work against PostgreSQL.
 - Login budget tests use an injected clock for recovery/concurrency/bounds; integration tests exercise path/proxy trust and authentication contracts.
 

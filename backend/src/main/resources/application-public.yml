@@ -33,6 +33,7 @@ issunexa:
 spring:
   datasource:
     hikari:
+      connection-timeout: 3000
       maximum-pool-size: 3
       # Release every idle connection instead of keeping a sleeping database awake.
       minimum-idle: 0
