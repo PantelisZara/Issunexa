@@ -85,3 +85,5 @@ Session cookies require CSRF coordination on browser writes, and client route gu
 [Dependency remediation](dependency-security-012.md) records the current Tomcat/Jackson maintenance overrides, exact resolved versions, every dependency advisory from the baseline audit, vendor cross-checks and reachability limits. Keep these families coherent through the managed version properties and repeat the documented verification when updating them.
 
 [Runtime security and jsdom disposition](runtime-security-sec03.md) distinguishes the patched Node-bundled Undici from npm dependencies and jsdom copied code, with current reachability limits and reassessment triggers.
+
+[Development glob assessment](minimatch-assessment-sec04.md) records the newly reported minimatch advisory, its twelve moderate audit entries, scoped current reachability and reassessment triggers; a full-audit zero-finding claim is no longer current.
