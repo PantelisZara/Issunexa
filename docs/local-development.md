@@ -91,7 +91,7 @@ Use the chosen password with `requester@demo.invalid` or `agent@demo.invalid` on
 
 ## Vite hot reload
 
-Use Node **24.21.0** to match CI (the package supports Node 24 from 24.15.0). From the repository root after `.env` setup:
+Use Node **24.22.2** to match CI (the package supports Node 24 from 24.15.0). From the repository root after `.env` setup:
 
 ```sh
 docker compose up --build -d postgres backend

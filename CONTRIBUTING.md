@@ -31,8 +31,8 @@ Review the complete diff before committing. Keep credentials, local `.env` files
 Follow the setup instructions in [README.md](README.md). Select local checks appropriate to the changed behavior and record the actual commands and results:
 
 - Backend changes: with Java 21 and Docker available, run `./mvnw --batch-mode --no-transfer-progress verify` from `backend/`.
-- Frontend changes: with Node 24.21.0, run `npm ci`, `npm run lint`, `npm run typecheck:e2e`, `npm test` and `npm run build` from `frontend/`.
-- Full-stack journeys or E2E changes: with Node 24.21.0 and Docker/Compose/Buildx available, run `npm run test:e2e` from `frontend/`.
+- Frontend changes: with Node 24.22.2, run `npm ci`, `npm run lint`, `npm run typecheck:e2e`, `npm test` and `npm run build` from `frontend/`.
+- Full-stack journeys or E2E changes: with Node 24.22.2 and Docker/Compose/Buildx available, run `npm run test:e2e` from `frontend/`.
 - Documentation/templates: check syntax, links, paths and consistency with current project commands.
 
 Always run `git diff --check`. Report skipped checks and their reasons, failures and known limitations; do not describe unexecuted checks as passing. Share useful failure diagnostics without credentials.

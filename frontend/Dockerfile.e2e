@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 ARG PLAYWRIGHT_VERSION=1.63.0
-FROM node:24.21.0-bookworm-slim AS node
+FROM node:24.22.2-bookworm-slim AS node
 FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
 # Use the project's Node 24 tooling with the official browser/dependency image.
 COPY --from=node /usr/local/ /usr/local/
