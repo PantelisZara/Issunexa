@@ -1,5 +1,12 @@
 # Opt in only behind an ingress that enforces HTTPS and prevents direct access.
 server:
+  port: ${PORT:8080}
+  tomcat:
+    threads:
+      max: 20
+      min-spare: 2
+    max-connections: 100
+    accept-count: 20
   forward-headers-strategy: none
   servlet:
     session:
@@ -21,3 +28,13 @@ issunexa:
   public-deployment:
     origin: ${ISSUNEXA_PUBLIC_ORIGIN}
     ingress: ${ISSUNEXA_PUBLIC_INGRESS:peer}
+
+# Keep the single low-memory demo process and its database connections bounded.
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 3
+      # Release every idle connection instead of keeping a sleeping database awake.
+      minimum-idle: 0
+      idle-timeout: 60000
+      keepalive-time: 0

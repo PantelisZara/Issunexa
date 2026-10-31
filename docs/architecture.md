@@ -15,6 +15,8 @@ In the [Compose environment](../compose.yaml), Nginx serves the compiled fronten
 
 The default frontend address is `http://localhost:3000`; backend and database host bindings are loopback-only. In the separate Vite development workflow, the [development proxy](../frontend/vite.config.ts) forwards `/api` to the backend on port 8080. The backend architecture is the same in both workflows.
 
+The optional [root Dockerfile](../Dockerfile) also embeds the compiled UI in Java for a single-service deployment. Under the public profile, Java serves explicit browser routes and assets alongside the API; an external HTTPS ingress is required. This is locally verified preparation, not a hosted deployment. See the [artifact contract](single-service-artifact.md).
+
 ## Component boundaries
 
 | Boundary | Responsibility | Detail |
@@ -34,7 +36,7 @@ Three independent workflows run on pushes/PRs targeting `master` and manual disp
 
 - [Backend CI](../.github/workflows/backend-ci.yml): Maven `verify`, including PostgreSQL integration tests with Testcontainers.
 - [Frontend CI](../.github/workflows/frontend-ci.yml): lint, E2E TypeScript checks, Vitest and production build.
-- [E2E CI](../.github/workflows/e2e-ci.yml): the same `npm run test:e2e` command used locally from `frontend/`.
+- [E2E CI](../.github/workflows/e2e-ci.yml): the same `npm run test:e2e` and `npm run test:e2e:artifact` commands used locally from `frontend/`.
 
 The [E2E runner](../frontend/e2e/run-e2e.sh) builds real application images, creates an isolated database, checks readiness through Nginx and `/api/auth/csrf`, and provisions synthetic accounts only in that database. It removes its invocation's containers, network, volume, temporary credentials and image tags. [Playwright](../frontend/playwright.config.ts) covers desktop Chromium and Pixel 7 Chromium emulation; mobile emulation does not establish physical-device or Safari coverage.
 
@@ -43,5 +45,7 @@ The [E2E runner](../frontend/e2e/run-e2e.sh) builds real application images, cre
 - [ADR 001: modular monolith](decisions/001-modular-monolith.md)
 - [ADR 002: sessions and CSRF](decisions/002-session-authentication.md)
 - [ADR 003: PostgreSQL and Flyway](decisions/003-postgresql-flyway.md)
+- [ADR 004: public HTTPS and ingress](decisions/004-public-https-ingress.md)
+- [ADR 005: same-origin Java artifact](decisions/005-single-service-artifact.md)
 
-These ADRs record decisions already embodied in the implementation. Compose defines a local HTTP environment. No production deployment, capacity measurement or independent business-service scaling is established by this repository.
+These ADRs record decisions already embodied in the implementation. Compose defines a local HTTP environment. The artifact has a local 512 MiB container exercise; production deployment, concurrency capacity and independent business-service scaling remain unverified.

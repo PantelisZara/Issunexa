@@ -15,7 +15,8 @@
         "test:watch": "vitest",
         "test:e2e": "bash e2e/run-e2e.sh",
         "test:e2e:headed": "bash e2e/run-e2e.sh --headed",
-        "typecheck:e2e": "tsc -p tsconfig.e2e.json"
+        "typecheck:e2e": "tsc -p tsconfig.e2e.json",
+        "test:e2e:artifact": "bash e2e/run-e2e.sh --artifact"
     },
     "dependencies": {
         "react": "~19.3.0",

@@ -9,6 +9,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -31,6 +32,7 @@ import org.springframework.security.web.csrf.CsrfAuthenticationStrategy;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfLogoutHandler;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
 import java.time.Clock;
 import java.util.List;
@@ -92,7 +94,11 @@ public class SecurityConfiguration {
             AuthenticationManager authenticationManager, HttpSessionSecurityContextRepository contextRepository,
             HttpSessionCsrfTokenRepository csrfRepository, SecurityContextHolderStrategy holderStrategy,
             SecurityProblemHandler problemHandler, LoginAttemptLimiter loginLimiter,
-            LoginSourceResolver loginSourceResolver) throws Exception {
+            LoginSourceResolver loginSourceResolver, Environment environment) throws Exception {
+        if (environment.matchesProfiles("public")) {
+            http.headers(headers -> headers.referrerPolicy(referrer -> referrer
+                    .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)));
+        }
         http.setSharedObject(SecurityContextHolderStrategy.class, holderStrategy);
         http.addFilterBefore(new LoginSourceThrottleFilter(loginLimiter, loginSourceResolver, problemHandler),
                 CsrfFilter.class);
@@ -110,15 +116,21 @@ public class SecurityConfiguration {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(problemHandler)
                         .accessDeniedHandler(problemHandler))
-                .authorizeHttpRequests(authorize -> authorize
-                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                .authorizeHttpRequests(authorize -> {
+                    if (environment.matchesProfiles("public")) {
+                        authorize.requestMatchers(HttpMethod.GET, "/", "/index.html", "/login", "/app",
+                                "/app/tickets", "/app/tickets/new", "/app/tickets/{id:[0-9]+}",
+                                "/assets/**", "/branding/**", "/site.webmanifest").permitAll();
+                    }
+                    authorize.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/session").authenticated()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/tickets/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
-                        .anyRequest().denyAll());
+                        .anyRequest().denyAll();
+                });
         return http.build();
     }
 

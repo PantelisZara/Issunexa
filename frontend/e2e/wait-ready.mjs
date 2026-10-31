@@ -10,7 +10,7 @@ while (Date.now() < deadline) {
             const data = await response.json();
             if (typeof data.token === 'string' && data.token.length > 0
                 && typeof data.headerName === 'string' && data.headerName.length > 0) {
-                console.log('Nginx → backend → PostgreSQL ready; CSRF response validated.');
+                console.log('Application ready; CSRF response validated.');
                 process.exit(0);
             }
             lastFailure = 'CSRF response did not match the application contract';

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+artifact=false
+if [[ ${1:-} == --artifact ]]; then
+    artifact=true
+    shift
+fi
+
 frontend_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 repo_dir=$(cd -- "$frontend_dir/.." && pwd)
 cd -- "$frontend_dir"
@@ -25,6 +31,13 @@ temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/issunexa-e2e.XXXXXXXX")
 project="issunexa-e2e-$(date +%s)-$$"
 compose=(docker compose --project-directory "$repo_dir" --env-file "$temp_dir/environment"
     -p "$project" --profile e2e -f "$repo_dir/compose.yaml" -f "$repo_dir/compose.e2e.yaml")
+build_services=(postgres backend frontend playwright)
+start_services=(postgres backend frontend)
+if $artifact; then
+    compose+=(-f "$repo_dir/compose.artifact.e2e.yaml")
+    build_services=(postgres backend playwright)
+    start_services=(postgres backend)
+fi
 compose_ready=false
 cleanup() {
     result=$?
@@ -59,6 +72,7 @@ unset ISSUNEXA_POSTGRES_DB ISSUNEXA_POSTGRES_USER ISSUNEXA_POSTGRES_PASSWORD
 unset ISSUNEXA_DB_USERNAME ISSUNEXA_DB_PASSWORD ISSUNEXA_FLYWAY_USERNAME ISSUNEXA_FLYWAY_PASSWORD
 unset ISSUNEXA_POSTGRES_PORT ISSUNEXA_BACKEND_PORT
 unset ISSUNEXA_FRONTEND_BIND_ADDRESS ISSUNEXA_FRONTEND_PORT
+unset ISSUNEXA_PUBLIC_ORIGIN ISSUNEXA_PUBLIC_INGRESS
 unset ISSUNEXA_LOGIN_ACCOUNT_LIMIT ISSUNEXA_LOGIN_ACCOUNT_WINDOW
 unset ISSUNEXA_LOGIN_SOURCE_LIMIT ISSUNEXA_LOGIN_SOURCE_WINDOW
 unset ISSUNEXA_LOGIN_MAX_ACCOUNT_ENTRIES ISSUNEXA_LOGIN_MAX_SOURCE_ENTRIES ISSUNEXA_LOGIN_TRUSTED_PROXY
@@ -81,10 +95,33 @@ mkdir -p e2e-artifacts
 printf 'Disposable E2E project: %s; Playwright %s\n' "$project" "$PLAYWRIGHT_VERSION"
 "${compose[@]}" config -q
 compose_ready=true
-"${compose[@]}" build postgres backend frontend playwright
-"${compose[@]}" up -d postgres backend frontend
+"${compose[@]}" build "${build_services[@]}"
+"${compose[@]}" up -d "${start_services[@]}"
 "${compose[@]}" run --rm --no-deps -T playwright node e2e/wait-ready.mjs
 "${compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U issunexa_e2e -d issunexa_e2e \
     < e2e/fixtures/accounts.sql
-"${compose[@]}" run --rm --no-deps -T playwright \
-    xvfb-run -a npm exec -- playwright test "$@"
+if $artifact; then
+    "${compose[@]}" run --rm --no-deps -T playwright \
+        xvfb-run -a npm exec -- playwright test \
+        --project=chromium-desktop --project=chromium-mobile "$@"
+    "${compose[@]}" run --rm --no-deps -T playwright \
+        xvfb-run -a npm exec -- playwright test \
+        --config=playwright.artifact.config.ts --project=chromium-artifact-contract
+    # Inspect the actual tested service, not a separate unconstrained image.
+    "${compose[@]}" exec -T backend sh -ec '
+        test "$(id -u)" = 10001
+        for tool in node npm javac mvn; do
+            if command -v "$tool" >/dev/null 2>&1; then exit 1; fi
+        done
+        test "$(cat /sys/fs/cgroup/memory.max)" = 536870912
+        printf "Artifact memory limit bytes: "
+        cat /sys/fs/cgroup/memory.max
+        printf "Artifact peak memory bytes: "
+        cat /sys/fs/cgroup/memory.peak
+    '
+    container=$("${compose[@]}" ps -q backend)
+    test "$(docker inspect --format '{{.State.OOMKilled}}' "$container")" = false
+else
+    "${compose[@]}" run --rm --no-deps -T playwright \
+        xvfb-run -a npm exec -- playwright test "$@"
+fi
