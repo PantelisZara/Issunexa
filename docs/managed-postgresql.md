@@ -77,6 +77,10 @@ The managed tests generate disposable TLS PostgreSQL containers. A fixture-only 
 
 Actual Neon acceptance remains unexecuted: account/Free eligibility, database owner administration/membership behavior, real provider namespaces/default ACLs, generated-password policy, database-scoped search_path settings and marker-driven grants, runtime/migration TLS logins, privilege denials/reruns, direct-connection limits, suspend/wake-up, and backup/restore. These require later explicit account/resource authorization. Database provisioning alone does not make the unrestricted staff model safe for a public shared demo.
 
+## Logical recovery
+
+The [managed recovery procedure](managed-recovery.md) provides an operator-only backup and transactional restore into a separate fresh target, with actual disposable TLS integration coverage. It does not establish provider retention, external storage or actual hosted recovery.
+
 ## Primary references
 
 - [Neon roles and SQL-created identities](https://neon.com/docs/manage/roles)

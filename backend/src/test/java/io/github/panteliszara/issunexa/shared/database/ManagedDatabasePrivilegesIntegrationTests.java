@@ -20,6 +20,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.testcontainers.containers.Container.ExecResult;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.MountableFile;
@@ -320,6 +323,167 @@ class ManagedDatabasePrivilegesIntegrationTests {
         }
     }
 
+    @Test
+    void recoversManagedBackupIntoFreshTlsDatabaseWithDataSequencesAndPrivileges() throws Exception {
+        try (var source = postgres(); var target = postgres().withDatabaseName("recovery_target")) {
+            source.start();
+            target.start();
+            prepareOwner(source);
+            prepareOwner(target);
+            provisionSuccessfully(source, MIGRATION_PASSWORD, RUNTIME_PASSWORD);
+            assertRecoverySuccess(provision(target, ROTATED_MIGRATION, ROTATED_RUNTIME,
+                    Map.of("ISSUNEXA_FLYWAY_USERNAME", "recovery_migrator", "ISSUNEXA_DB_USERNAME", "recovery_runtime")));
+            Long ticketId;
+            try (var context = application(source, MIGRATION_PASSWORD, RUNTIME_PASSWORD)) {
+                var accounts = context.getBean(UserAccountService.class);
+                var requester = accounts.createUser("recovery@example.test", "Recovery requester",
+                        "synthetic-requester-password", UserRole.REQUESTER);
+                var agent = accounts.createUser("recovery-agent@example.test", "Recovery agent",
+                        "synthetic-agent-password", UserRole.AGENT);
+                var tickets = context.getBean(TicketService.class);
+                var ticket = tickets.createTicket("Recovered ticket", "Synthetic recovery data", TicketPriority.HIGH,
+                        TicketCategory.INCIDENT, requester.getEmail());
+                ticketId = ticket.getId();
+                try {
+                    SecurityContextHolder.getContext().setAuthentication(
+                            UsernamePasswordAuthenticationToken.authenticated(
+                                    agent.getEmail(), null, List.of(new SimpleGrantedAuthority("ROLE_AGENT"))));
+                    tickets.claimTicket(ticketId, agent.getEmail());
+                    tickets.changeStatus(ticketId, TicketStatus.IN_PROGRESS, agent.getEmail());
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+                context.getBean(TicketCommentService.class).addComment(ticketId, requester.getEmail(), "Restored comment");
+            }
+            var sourceObserver = jdbc(source, source.getUsername(), source.getPassword());
+            var expectedRows = rows(sourceObserver);
+            var expectedSequences = sequences(sourceObserver);
+            var expectedHistory = sourceObserver.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+            var sourceBefore = snapshot(sourceObserver);
+            byte[] archive = backup(source);
+            assertThat(snapshot(sourceObserver)).isEqualTo(sourceBefore);
+            target.copyFileToContainer(Transferable.of(archive, 0600), "/tmp/trusted.dump");
+            var result = recovery(target, ROTATED_MIGRATION, "restore", "/tmp/trusted.dump", Map.of("PGUSER", "recovery_migrator"));
+            assertRecoverySuccess(result);
+            var targetObserver = jdbc(target, target.getUsername(), target.getPassword());
+            assertThat(rows(targetObserver)).isEqualTo(expectedRows);
+            assertThat(sequences(targetObserver)).isEqualTo(expectedSequences);
+            assertThat(targetObserver.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank"))
+                    .isEqualTo(expectedHistory);
+            assertThat(targetObserver.queryForObject("SELECT obj_description(oid, 'pg_namespace') FROM pg_namespace WHERE nspname = ?", String.class, SCHEMA))
+                    .contains("database recovery_target");
+            try (var context = application(target, ROTATED_MIGRATION, ROTATED_RUNTIME, "recovery_migrator", "recovery_runtime")) {
+                assertThat(context.getBean(Flyway.class).info().pending()).isEmpty();
+                assertPrivileges(target, context.getBean(JdbcTemplate.class), ROTATED_MIGRATION, "recovery_migrator", "recovery_runtime");
+                assertThat(rows(targetObserver)).isEqualTo(expectedRows);
+                var tickets = context.getBean(TicketService.class);
+                assertThat(tickets.getTicket(ticketId, "recovery@example.test").getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+                var next = tickets.createTicket("After recovery", "New write", TicketPriority.LOW,
+                        TicketCategory.SERVICE_REQUEST, "recovery@example.test");
+                assertThat(next.getId()).isGreaterThan(ticketId);
+                context.getBean(TicketCommentService.class).addComment(next.getId(), "recovery@example.test", "New comment");
+                assertThat(targetObserver.queryForObject("SELECT count(*) FROM ticket_comments", Long.class)).isEqualTo(2);
+                assertThat(targetObserver.queryForObject("SELECT count(*) FROM ticket_history_entries", Long.class)).isEqualTo(4);
+            }
+            var before = snapshot(targetObserver);
+            assertRecoveryFailure(recovery(target, ROTATED_MIGRATION, "restore", "/tmp/trusted.dump", Map.of("PGUSER", "recovery_migrator")), "empty provisioned");
+            assertThat(snapshot(targetObserver)).isEqualTo(before);
+        }
+    }
+
+    @Test
+    void refusesUnsafeRecoveryAndRollsBackLateFailureWithoutChangingTarget() throws Exception {
+        try (var source = postgres(); var target = postgres()) {
+            source.start();
+            target.start();
+            prepareOwner(source);
+            prepareOwner(target);
+            provisionSuccessfully(source, MIGRATION_PASSWORD, RUNTIME_PASSWORD);
+            provisionSuccessfully(target, MIGRATION_PASSWORD, RUNTIME_PASSWORD);
+            Flyway.configure().dataSource(url(source), MIGRATOR, MIGRATION_PASSWORD).load().migrate();
+            byte[] archive = backup(source);
+            target.copyFileToContainer(Transferable.of(archive, 0600), "/tmp/trusted.dump");
+            var observer = jdbc(target, target.getUsername(), target.getPassword());
+            var before = snapshot(observer);
+            target.copyFileToContainer(Transferable.of("invalid archive", 0600), "/tmp/corrupt.dump");
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/corrupt.dump", Map.of()), "valid archive");
+            target.copyFileToContainer(Transferable.of(java.util.Arrays.copyOf(archive, archive.length - 40), 0600), "/tmp/truncated.dump");
+            assertThat(target.execInContainer("pg_restore", "--list", "/tmp/truncated.dump").getExitCode()).isZero();
+            var truncated = recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/truncated.dump", Map.of());
+            assertRecoveryFailure(truncated, "pg_restore:");
+            target.copyFileToContainer(Transferable.of(source.copyFileFromContainer("/tmp/managed-test.crt", InputStream::readAllBytes), 0600), "/tmp/wrong-ca.crt");
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of("PGSSLROOTCERT", "/tmp/wrong-ca.crt")), "certificate verify failed");
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of("PGSSLMODE", "require")), "verify-full");
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of("ISSUNEXA_DB_SCHEMA", "another_schema")), "selected schema");
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of("PGUSER", target.getUsername(), "PGPASSWORD", target.getPassword())), "schema-owning migrator");
+            assertThat(snapshot(observer)).isEqualTo(before);
+            observer.execute("CREATE COLLATION issunexa_managed.preexisting FROM pg_catalog.\"C\"");
+            var withCollation = snapshot(observer);
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of()), "empty provisioned");
+            assertThat(snapshot(observer)).isEqualTo(withCollation);
+            assertThat(observer.queryForObject("SELECT count(*) FROM pg_collation WHERE collname = 'preexisting'", Long.class)).isEqualTo(1);
+            observer.execute("DROP COLLATION issunexa_managed.preexisting");
+            observer.execute("ALTER ROLE managed_runtime CREATEDB");
+            var elevated = snapshot(observer);
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of()), "role privileges");
+            assertThat(snapshot(observer)).isEqualTo(elevated);
+            observer.execute("ALTER ROLE managed_runtime NOCREATEDB");
+            observer.execute("CREATE ROLE unrelated");
+            observer.execute("GRANT unrelated TO managed_runtime");
+            var membership = snapshot(observer);
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of()), "role privileges");
+            assertThat(snapshot(observer)).isEqualTo(membership);
+            observer.execute("REVOKE unrelated FROM managed_runtime");
+            observer.execute("DROP ROLE unrelated");
+            String schemaMarker = observer.queryForObject("SELECT obj_description(oid, 'pg_namespace') FROM pg_namespace WHERE nspname = ?", String.class, SCHEMA);
+            observer.execute("COMMENT ON SCHEMA issunexa_managed IS NULL");
+            var unmarked = snapshot(observer);
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of()), "markers");
+            assertThat(snapshot(observer)).isEqualTo(unmarked);
+            observer.execute("COMMENT ON SCHEMA issunexa_managed IS '" + schemaMarker + "'");
+            // Valid archive and early guard; the shared callback fails after all restored objects/data.
+            jdbc(source, MIGRATOR, MIGRATION_PASSWORD).execute("ALTER TABLE tickets RENAME COLUMN id TO renamed_id");
+            target.copyFileToContainer(Transferable.of(backup(source), 0600), "/tmp/late-failure.dump");
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/late-failure.dump", Map.of()), "does not exist");
+            assertThat(snapshot(observer)).isEqualTo(before);
+            assertThat(observer.queryForObject("SELECT count(*) FROM pg_class WHERE relnamespace = 'issunexa_managed'::regnamespace", Long.class)).isZero();
+        }
+    }
+
+    private static byte[] backup(PostgreSQLContainer source) throws Exception {
+        assertThat(source.execInContainer("mkdir", "-p", "-m", "700", "/tmp/private-backups").getExitCode()).isZero();
+        var result = recovery(source, MIGRATION_PASSWORD, "backup", "/tmp/private-backups", Map.of());
+        assertRecoverySuccess(result);
+        String archive = result.getStdout().strip();
+        assertThat(archive).matches("/tmp/private-backups/issunexa\\.[A-Za-z0-9]+\\.dump");
+        assertThat(source.execInContainer("stat", "-c", "%a", archive).getStdout().strip()).isEqualTo("600");
+        return source.copyFileFromContainer(archive, InputStream::readAllBytes);
+    }
+
+    private static ExecResult recovery(PostgreSQLContainer postgres, String password, String action, String path,
+            Map<String, String> overrides) throws Exception {
+        var environment = new LinkedHashMap<>(Map.of("PGHOST", "127.0.0.1", "PGDATABASE", postgres.getDatabaseName(),
+                "PGUSER", MIGRATOR, "PGPASSWORD", password, "PGSSLMODE", "verify-full",
+                "PGSSLROOTCERT", "/tmp/managed-test.crt", "ISSUNEXA_DB_SCHEMA", SCHEMA));
+        environment.putAll(overrides);
+        var command = new java.util.ArrayList<String>();
+        command.add("env");
+        environment.forEach((name, value) -> command.add(name + "=" + value));
+        command.addAll(List.of("bash", "/backend/database/recovery-managed.sh", action, path));
+        return postgres.execInContainer(command.toArray(String[]::new));
+    }
+
+    private static void assertRecoverySuccess(ExecResult result) {
+        assertThat(result.getStdout() + result.getStderr()).doesNotContain(MIGRATION_PASSWORD, RUNTIME_PASSWORD, ROTATED_MIGRATION, ROTATED_RUNTIME);
+        assertThat(result.getExitCode()).withFailMessage("%s", result.getStderr()).isZero();
+    }
+
+    private static void assertRecoveryFailure(ExecResult result, String message) {
+        assertThat(result.getStdout() + result.getStderr()).doesNotContain(MIGRATION_PASSWORD, RUNTIME_PASSWORD, ROTATED_MIGRATION, ROTATED_RUNTIME);
+        assertThat(result.getExitCode()).isNotZero();
+        assertThat(result.getStderr()).contains(message);
+    }
+
     private static PostgreSQLContainer postgres() {
         // A generated disposable certificate tests the actual verify-full psql entry point.
         String tls = """
@@ -387,9 +551,14 @@ class ManagedDatabasePrivilegesIntegrationTests {
     }
 
     private static ConfigurableApplicationContext application(PostgreSQLContainer postgres, String migrationPassword, String runtimePassword) {
+        return application(postgres, migrationPassword, runtimePassword, MIGRATOR, RUNTIME);
+    }
+
+    private static ConfigurableApplicationContext application(PostgreSQLContainer postgres, String migrationPassword,
+            String runtimePassword, String migrator, String runtime) {
         return new SpringApplication(IssunexaApplication.class).run("--server.address=127.0.0.1", "--server.port=0",
-                "--spring.datasource.url=" + url(postgres), "--spring.datasource.username=" + RUNTIME,
-                "--spring.datasource.password=" + runtimePassword, "--spring.flyway.user=" + MIGRATOR,
+                "--spring.datasource.url=" + url(postgres), "--spring.datasource.username=" + runtime,
+                "--spring.datasource.password=" + runtimePassword, "--spring.flyway.user=" + migrator,
                 "--spring.flyway.password=" + migrationPassword);
     }
 
@@ -436,9 +605,14 @@ class ManagedDatabasePrivilegesIntegrationTests {
     }
 
     private static void assertPrivileges(PostgreSQLContainer postgres, JdbcTemplate runtime, String migrationPassword) {
-        assertThat(runtime.queryForObject("SELECT current_user", String.class)).isEqualTo(RUNTIME);
+        assertPrivileges(postgres, runtime, migrationPassword, MIGRATOR, RUNTIME);
+    }
+
+    private static void assertPrivileges(PostgreSQLContainer postgres, JdbcTemplate runtime, String migrationPassword,
+            String migrationRole, String runtimeRole) {
+        assertThat(runtime.queryForObject("SELECT current_user", String.class)).isEqualTo(runtimeRole);
         assertThat(runtime.queryForObject("SELECT current_schema()", String.class)).isEqualTo(SCHEMA);
-        for (String role : List.of(MIGRATOR, RUNTIME)) {
+        for (String role : List.of(migrationRole, runtimeRole)) {
             assertThat(runtime.queryForMap("SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit FROM pg_roles WHERE rolname = ?", role))
                     .containsOnly(Map.entry("rolsuper", false), Map.entry("rolcreatedb", false), Map.entry("rolcreaterole", false),
                             Map.entry("rolreplication", false), Map.entry("rolbypassrls", false), Map.entry("rolinherit", false));
@@ -448,18 +622,18 @@ class ManagedDatabasePrivilegesIntegrationTests {
                 "CREATE TABLE public.forbidden (id bigint)", "CREATE TABLE forbidden (id bigint)", "CREATE TEMP TABLE forbidden (id bigint)",
                 "ALTER TABLE tickets ADD COLUMN forbidden text", "DROP TABLE ticket_comments", "TRUNCATE tickets CASCADE", "DELETE FROM tickets",
                 "UPDATE users SET display_name = 'Changed'", "UPDATE ticket_comments SET body = 'Changed'", "DELETE FROM ticket_history_entries",
-                "SELECT * FROM flyway_schema_history", "SET ROLE managed_migrator", "SET ROLE managed_owner", "SELECT setval('tickets_id_seq', 1)")) {
+                "SELECT * FROM flyway_schema_history", "SET ROLE " + migrationRole, "SET ROLE managed_owner", "SELECT setval('tickets_id_seq', 1)")) {
             assertDenied(runtime, sql);
         }
-        JdbcTemplate migrator = jdbc(postgres, MIGRATOR, migrationPassword);
+        JdbcTemplate migrator = jdbc(postgres, migrationRole, migrationPassword);
         for (String sql : List.of("CREATE ROLE forbidden", "CREATE DATABASE forbidden", "CREATE SCHEMA forbidden", "CREATE TABLE public.forbidden (id bigint)")) {
             assertDenied(migrator, sql);
         }
         migrator.execute("CREATE TABLE future_table (id bigint)");
         assertDenied(runtime, "SELECT * FROM future_table");
         migrator.execute("DROP TABLE future_table");
-        assertThat(runtime.queryForObject("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = ?", String.class, SCHEMA)).isEqualTo(MIGRATOR);
-        assertThat(runtime.queryForList("SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname = ?", String.class, SCHEMA)).containsExactly(MIGRATOR);
+        assertThat(runtime.queryForObject("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = ?", String.class, SCHEMA)).isEqualTo(migrationRole);
+        assertThat(runtime.queryForList("SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname = ?", String.class, SCHEMA)).containsExactly(migrationRole);
     }
 
     private static void assertDenied(JdbcTemplate jdbc, String sql) {
