@@ -40,10 +40,14 @@ BEGIN
             RAISE EXCEPTION 'Invalid or missing managed runtime marker';
         END IF;
         -- Table-level REVOKE does not remove column grants. Managed startup must
-        -- reject them even when no provisioning rerun or versioned migration occurs.
-        IF EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
-                   WHERE c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = application_schema)
-                     AND a.attacl IS NOT NULL) THEN
+        -- accept only the deliberately granted mutable Ticket columns, including on no-op migrations.
+        IF EXISTS (SELECT 1 FROM pg_attribute attribute JOIN pg_class column_table ON column_table.oid = attribute.attrelid,
+                         LATERAL aclexplode(attribute.attacl) grant_entry
+               WHERE column_table.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = application_schema)
+                 AND NOT (column_table.relkind = 'r' AND column_table.relname = 'tickets'
+                     AND attribute.attname IN ('title', 'description', 'status', 'priority', 'assignee_id', 'version', 'updated_at')
+                     AND grant_entry.grantee IS NOT DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role)
+                     AND grant_entry.privilege_type = 'UPDATE' AND NOT grant_entry.is_grantable)) THEN
             RAISE EXCEPTION 'Unexpected managed application column grants';
         END IF;
         SELECT oid INTO managed_schema_id FROM pg_namespace WHERE nspname = application_schema;
@@ -58,7 +62,7 @@ BEGIN
                         AND (a.grantee <> managed_runtime_id OR a.is_grantable OR NOT (
                             (c.relkind = 'S' AND a.privilege_type IN ('USAGE', 'SELECT'))
                             OR (c.relkind = 'r' AND c.relname IN
-                                ('users', 'tickets', 'ticket_comments', 'ticket_history_entries')
+                                ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'demo_workspaces')
                                 AND (a.privilege_type IN ('SELECT', 'INSERT')
                                      OR (c.relname = 'tickets' AND a.privilege_type = 'UPDATE'))))))
            OR EXISTS (SELECT 1 FROM pg_type t, LATERAL aclexplode(t.typacl) a
@@ -69,12 +73,39 @@ BEGIN
     IF runtime_role = current_user OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role) THEN
         RAISE EXCEPTION 'Invalid provisioned runtime role';
     END IF;
-    FOREACH table_name IN ARRAY ARRAY['users', 'tickets', 'ticket_comments', 'ticket_history_entries'] LOOP
+
+    IF EXISTS (SELECT 1 FROM pg_attribute attribute JOIN pg_class column_table ON column_table.oid = attribute.attrelid,
+                         LATERAL aclexplode(attribute.attacl) grant_entry
+               WHERE column_table.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = application_schema)
+                 AND NOT (column_table.relkind = 'r' AND column_table.relname = 'tickets'
+                     AND attribute.attname IN ('title', 'description', 'status', 'priority', 'assignee_id', 'version', 'updated_at')
+                     AND grant_entry.grantee IS NOT DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role)
+                     AND grant_entry.privilege_type = 'UPDATE' AND NOT grant_entry.is_grantable)) THEN
+        RAISE EXCEPTION 'Unexpected application column grants';
+    END IF;
+
+
+    IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+               WHERE n.nspname = application_schema AND (NOT (p.proname = 'expire_demo_workspaces' AND p.pronargs = 0 AND p.prorettype = 'integer'::regtype
+                    AND p.prokind = 'f' AND p.prosecdef AND p.provolatile = 'v'
+                    AND p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql')
+                    AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[])
+                   OR p.proowner <> n.nspowner))
+       OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace,
+                         LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                  WHERE n.nspname = application_schema AND a.grantee <> p.proowner
+                    AND (a.grantee IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role)
+                         OR a.privilege_type <> 'EXECUTE' OR a.is_grantable)) THEN
+        RAISE EXCEPTION 'Unexpected demo routine ownership, shape or grants';
+    END IF;
+    FOREACH table_name IN ARRAY ARRAY['users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'demo_workspaces'] LOOP
         IF to_regclass(format('%I.%I', application_schema, table_name)) IS NOT NULL THEN
             EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, %I', application_schema, table_name, runtime_role);
             EXECUTE format('GRANT SELECT, INSERT ON TABLE %I.%I TO %I', application_schema, table_name, runtime_role);
             IF table_name = 'tickets' THEN
-                EXECUTE format('GRANT UPDATE ON TABLE %I.%I TO %I', application_schema, table_name, runtime_role);
+                -- Remove legacy V9 table UPDATE above; restore only ORM-mutable columns.
+                EXECUTE format('GRANT UPDATE (title, description, status, priority, assignee_id, version, updated_at) ON TABLE %I.%I TO %I',
+                               application_schema, table_name, runtime_role);
             END IF;
             sequence_name := pg_get_serial_sequence(format('%I.%I', application_schema, table_name), 'id');
             IF sequence_name IS NOT NULL THEN
@@ -83,6 +114,10 @@ BEGIN
             END IF;
         END IF;
     END LOOP;
+    IF to_regprocedure(format('%I.expire_demo_workspaces()', application_schema)) IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %I.expire_demo_workspaces() FROM PUBLIC, %I', application_schema, runtime_role);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %I.expire_demo_workspaces() TO %I', application_schema, runtime_role);
+    END IF;
     IF to_regclass(format('%I.flyway_schema_history', application_schema)) IS NOT NULL THEN
         EXECUTE format('REVOKE ALL ON TABLE %I.flyway_schema_history FROM PUBLIC, %I', application_schema, runtime_role);
     END IF;

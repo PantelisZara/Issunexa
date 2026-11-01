@@ -37,6 +37,9 @@ public class UserAccount {
     @Column(name = "role", nullable = false, length = 20)
     private UserRole role;
 
+    @Column(name = "demo_workspace_id", updatable = false)
+    private Long demoWorkspaceId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -51,6 +54,16 @@ public class UserAccount {
         this.displayName = requireNonblank(displayName, "displayName").strip();
         this.passwordHash = requireNonblank(passwordHash, "passwordHash");
         this.role = Objects.requireNonNull(role, "role must not be null");
+    }
+
+    public UserAccount(String email, String displayName, String passwordHash, UserRole role, Long workspaceId) {
+        this(email, displayName, passwordHash, role);
+        if (workspaceId == null || role == UserRole.ADMIN) throw new IllegalArgumentException("Invalid demo account.");
+        this.demoWorkspaceId = workspaceId;
+    }
+
+    public Long getDemoWorkspaceId() {
+        return demoWorkspaceId;
     }
 
     public Long getId() {

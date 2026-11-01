@@ -83,7 +83,7 @@ else
         --use-list="$scratch/restore.list" --file="$scratch/archive.sql" -- "$destination"
     cat "$guard" "$scratch/archive.sql" > "$scratch/transaction.sql"
     printf '\nSET LOCAL search_path TO "%s";\n' "$ISSUNEXA_DB_SCHEMA" >> "$scratch/transaction.sql"
-    cat "$callback" >> "$scratch/transaction.sql"
+    cat "$script_dir/recovery-runtime-privileges.sql" "$callback" >> "$scratch/transaction.sql"
     # Guard, objects, data, sequence state and explicit grants commit together.
     psql "${psql_options[@]}" --single-transaction --file="$scratch/transaction.sql"
 fi

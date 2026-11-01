@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.ticket.comment;
 
+import io.github.panteliszara.issunexa.demo.DemoWorkspaceAccess;
 import io.github.panteliszara.issunexa.ticket.Ticket;
 import io.github.panteliszara.issunexa.ticket.TicketService;
 import io.github.panteliszara.issunexa.user.UserAccount;
@@ -13,12 +14,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class TicketCommentService {
 
+    private final DemoWorkspaceAccess demo;
     private final TicketCommentRepository ticketCommentRepository;
     private final UserAccountRepository userAccountRepository;
     private final TicketService ticketService;
 
     public TicketCommentService(TicketCommentRepository ticketCommentRepository,
-            UserAccountRepository userAccountRepository, TicketService ticketService) {
+            UserAccountRepository userAccountRepository, TicketService ticketService, DemoWorkspaceAccess demo) {
+        this.demo = demo;
         this.ticketCommentRepository = ticketCommentRepository;
         this.userAccountRepository = userAccountRepository;
         this.ticketService = ticketService;
@@ -29,6 +32,7 @@ public class TicketCommentService {
         Ticket ticket = ticketService.getTicket(ticketId, actorEmail);
         UserAccount author = userAccountRepository.findByEmail(UserAccount.normalizeEmail(actorEmail))
                 .orElseThrow(() -> new IllegalStateException("Authenticated user account could not be resolved."));
+        demo.beforeComment(author);
         return ticketCommentRepository.save(new TicketComment(ticket, author, body));
     }
 

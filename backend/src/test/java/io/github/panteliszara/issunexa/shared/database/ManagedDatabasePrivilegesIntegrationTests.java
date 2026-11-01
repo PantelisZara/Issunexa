@@ -71,6 +71,8 @@ class ManagedDatabasePrivilegesIntegrationTests {
                 assertPrivileges(postgres, runtime, MIGRATION_PASSWORD);
                 var migration = new JdbcTemplate(context.getBean(Flyway.class).getConfiguration().getDataSource());
                 assertThat(migration.queryForObject("SELECT current_user", String.class)).isEqualTo(MIGRATOR);
+                DemoPrivilegeAssertions.verify(migration, runtime);
+                DemoPrivilegeAssertions.verifyRuntimeWorkflows(context);
                 assertThat(migration.queryForObject("SELECT current_schema()", String.class)).isEqualTo(SCHEMA);
                 assertThat(context.getBean(EntityManagerFactory.class).getProperties())
                         .containsEntry("hibernate.hbm2ddl.auto", "validate");
@@ -121,7 +123,9 @@ class ManagedDatabasePrivilegesIntegrationTests {
     @ParameterizedTest
     @ValueSource(strings = {"elevation", "outgoing-membership", "incoming-membership", "ownership", "unknown-table",
             "unknown-function", "unknown-type", "external-unowned-table", "external-unowned-function", "public-create", "role-settings", "external-table-grant", "external-column-grant", "external-function-grant",
-            "application-column-grant", "application-public-column-grant", "default-grant", "late-callback-error"})
+            "application-column-grant", "application-public-column-grant", "default-grant", "late-callback-error",
+            "cleanup-public-execute", "cleanup-search-path", "cleanup-null-search-path", "cleanup-runtime-owner", "cleanup-grant-option", "cleanup-outsider-execute",
+            "ticket-column-requester", "ticket-column-public", "ticket-column-outsider", "ticket-column-select", "ticket-column-grant-option"})
     void rejectsUnexpectedStateWithoutChangingPasswordsSettingsAclsOrData(String scenario) throws Exception {
         try (var postgres = postgres()) {
             postgres.start();
@@ -146,6 +150,23 @@ class ManagedDatabasePrivilegesIntegrationTests {
                 }
                 case "ownership" -> observer.execute("ALTER TABLE issunexa_managed.tickets OWNER TO managed_owner");
                 case "unknown-table" -> migrator.execute("CREATE TABLE unexpected (value text)");
+                case "ticket-column-requester" -> migrator.execute("GRANT UPDATE (requester_id) ON tickets TO managed_runtime");
+                case "ticket-column-public" -> migrator.execute("GRANT UPDATE (title) ON tickets TO PUBLIC");
+                case "ticket-column-select" -> migrator.execute("GRANT SELECT (title) ON tickets TO managed_runtime");
+                case "ticket-column-grant-option" -> migrator.execute("GRANT UPDATE (title) ON tickets TO managed_runtime WITH GRANT OPTION");
+                case "ticket-column-outsider" -> {
+                    observer.execute("CREATE ROLE unrelated");
+                    migrator.execute("GRANT UPDATE (title) ON tickets TO unrelated");
+                }
+                case "cleanup-public-execute" -> migrator.execute("GRANT EXECUTE ON FUNCTION expire_demo_workspaces() TO PUBLIC");
+                case "cleanup-null-search-path" -> migrator.execute("ALTER FUNCTION expire_demo_workspaces() RESET ALL");
+                case "cleanup-runtime-owner" -> observer.execute("ALTER FUNCTION issunexa_managed.expire_demo_workspaces() OWNER TO managed_runtime");
+                case "cleanup-search-path" -> migrator.execute("ALTER FUNCTION expire_demo_workspaces() SET search_path = public");
+                case "cleanup-grant-option" -> migrator.execute("GRANT EXECUTE ON FUNCTION expire_demo_workspaces() TO managed_runtime WITH GRANT OPTION");
+                case "cleanup-outsider-execute" -> {
+                    observer.execute("CREATE ROLE unrelated");
+                    migrator.execute("GRANT EXECUTE ON FUNCTION expire_demo_workspaces() TO unrelated");
+                }
                 case "unknown-function" -> migrator.execute("CREATE FUNCTION unexpected() RETURNS integer LANGUAGE sql AS 'SELECT 1'");
                 case "unknown-type" -> migrator.execute("CREATE TYPE unexpected AS ENUM ('value')");
                 case "external-unowned-table" -> {
@@ -189,6 +210,18 @@ class ManagedDatabasePrivilegesIntegrationTests {
                 default -> throw new IllegalArgumentException(scenario);
             }
             var before = snapshot(observer);
+            if (scenario.startsWith("cleanup-")) {
+                assertThatThrownBy(() -> Flyway.configure().dataSource(url(postgres), MIGRATOR, MIGRATION_PASSWORD).load().migrate())
+                        .rootCause().isInstanceOfSatisfying(PSQLException.class,
+                                error -> assertThat(error.getMessage()).contains("Unexpected demo routine"));
+                assertThat(snapshot(observer)).as("no-pending callback: " + scenario).isEqualTo(before);
+            }
+            if (scenario.startsWith("ticket-column-")) {
+                assertThatThrownBy(() -> Flyway.configure().dataSource(url(postgres), MIGRATOR, MIGRATION_PASSWORD).load().migrate())
+                        .rootCause().isInstanceOfSatisfying(PSQLException.class,
+                                error -> assertThat(error.getMessage()).contains("column grants"));
+                assertThat(snapshot(observer)).as("no-pending callback: " + scenario).isEqualTo(before);
+            }
             var result = provision(postgres, ROTATED_MIGRATION, ROTATED_RUNTIME, Map.of());
             assertThat(result.getExitCode()).as(scenario).isNotZero();
             assertThat(result.getStderr()).as(scenario).doesNotContain(ROTATED_MIGRATION, ROTATED_RUNTIME);
@@ -366,6 +399,10 @@ class ManagedDatabasePrivilegesIntegrationTests {
             var result = recovery(target, ROTATED_MIGRATION, "restore", "/tmp/trusted.dump", Map.of("PGUSER", "recovery_migrator"));
             assertRecoverySuccess(result);
             var targetObserver = jdbc(target, target.getUsername(), target.getPassword());
+            assertThat(targetObserver.queryForObject("SELECT has_function_privilege('public', 'issunexa_managed.expire_demo_workspaces()', 'EXECUTE')", Boolean.class)).isFalse();
+            assertThat(targetObserver.queryForObject("SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid = 'issunexa_managed.expire_demo_workspaces()'::regprocedure", String.class)).isEqualTo("recovery_migrator");
+            assertThat(jdbc(target, "recovery_runtime", ROTATED_RUNTIME).queryForObject("SELECT expire_demo_workspaces()", Integer.class)).isZero();
+            assertDenied(jdbc(target, "recovery_runtime", ROTATED_RUNTIME), "UPDATE tickets SET requester_id = NULL");
             assertThat(rows(targetObserver)).isEqualTo(expectedRows);
             assertThat(sequences(targetObserver)).isEqualTo(expectedSequences);
             assertThat(targetObserver.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank"))
@@ -441,6 +478,12 @@ class ManagedDatabasePrivilegesIntegrationTests {
             assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/trusted.dump", Map.of()), "markers");
             assertThat(snapshot(observer)).isEqualTo(unmarked);
             observer.execute("COMMENT ON SCHEMA issunexa_managed IS '" + schemaMarker + "'");
+            // Restore-only default revocation must not permit an unsafe routine shape.
+            jdbc(source, MIGRATOR, MIGRATION_PASSWORD).execute("ALTER FUNCTION expire_demo_workspaces() SECURITY INVOKER");
+            target.copyFileToContainer(Transferable.of(backup(source), 0600), "/tmp/unsafe-routine.dump");
+            assertRecoveryFailure(recovery(target, MIGRATION_PASSWORD, "restore", "/tmp/unsafe-routine.dump", Map.of()), "Unexpected demo routine");
+            assertThat(snapshot(observer)).isEqualTo(before);
+            jdbc(source, MIGRATOR, MIGRATION_PASSWORD).execute("ALTER FUNCTION expire_demo_workspaces() SECURITY DEFINER");
             // Valid archive and early guard; the shared callback fails after all restored objects/data.
             jdbc(source, MIGRATOR, MIGRATION_PASSWORD).execute("ALTER TABLE tickets RENAME COLUMN id TO renamed_id");
             target.copyFileToContainer(Transferable.of(backup(source), 0600), "/tmp/late-failure.dump");

@@ -1,6 +1,8 @@
 package io.github.panteliszara.issunexa.shared.web;
 
 import io.github.panteliszara.issunexa.auth.LoginThrottledException;
+import io.github.panteliszara.issunexa.demo.DemoUnavailableException;
+import io.github.panteliszara.issunexa.demo.DemoExpiredException;
 import io.github.panteliszara.issunexa.ticket.InvalidTicketStatusTransitionException;
 import io.github.panteliszara.issunexa.ticket.TicketAlreadyAssignedException;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
@@ -32,6 +34,18 @@ import java.util.stream.Stream;
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final URI ABOUT_BLANK = URI.create("about:blank");
+
+    @ExceptionHandler(DemoUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleDemoUnavailable(DemoUnavailableException exception) {
+        return ResponseEntity.status(429).header("Retry-After", "60").header("Cache-Control", "no-store")
+                .body(ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage()));
+    }
+
+    @ExceptionHandler(DemoExpiredException.class)
+    public ResponseEntity<ProblemDetail> handleDemoExpired(DemoExpiredException exception) {
+        return ResponseEntity.status(401).header("Cache-Control", "no-store")
+                .body(ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage()));
+    }
 
     @ExceptionHandler(LoginThrottledException.class)
     public ResponseEntity<ProblemDetail> handleLoginThrottled(LoginThrottledException exception) {

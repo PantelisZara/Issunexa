@@ -6,6 +6,8 @@ import java.util.Optional;
 
 public interface UserAccountRepository extends JpaRepository<UserAccount, Long> {
 
+    Optional<UserAccount> findByDemoWorkspaceIdAndRole(Long workspaceId, UserRole role);
+
     Optional<UserAccount> findByEmail(String email);
 
 }

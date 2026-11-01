@@ -35,7 +35,7 @@ class DatabaseUserDetailsServiceTests {
 
     @BeforeEach
     void setUp() {
-        userDetailsService = new DatabaseUserDetailsService(userAccountRepository);
+        userDetailsService = new DatabaseUserDetailsService(userAccountRepository, new org.springframework.mock.env.MockEnvironment());
     }
 
     @ParameterizedTest
@@ -52,6 +52,25 @@ class DatabaseUserDetailsServiceTests {
         assertThat(details.getAuthorities()).extracting(GrantedAuthority::getAuthority).containsExactly(expectedAuthority);
         verify(userAccountRepository).findByEmail("alice@example.com");
         verifyNoMoreInteractions(userAccountRepository);
+    }
+
+    @Test
+    void rejectsKnownDemoPasswordAccountsEvenOutsideDemoProfile() {
+        UserAccount account = new UserAccount("demo@example.invalid", "Synthetic", "{noop}known-password", UserRole.AGENT, 1L);
+        when(userAccountRepository.findByEmail("demo@example.invalid")).thenReturn(Optional.of(account));
+        assertThatThrownBy(() -> userDetailsService.loadUserByUsername("demo@example.invalid"))
+                .isInstanceOf(UsernameNotFoundException.class).hasMessage("User account not found.");
+    }
+
+    @Test
+    void rejectsKnownOrdinaryAccountsInsideDemoProfile() {
+        UserAccount account = new UserAccount("ordinary@example.invalid", "Ordinary", "{noop}known-password", UserRole.REQUESTER);
+        when(userAccountRepository.findByEmail("ordinary@example.invalid")).thenReturn(Optional.of(account));
+        var environment = new org.springframework.mock.env.MockEnvironment();
+        environment.setActiveProfiles("demo");
+        var demoDetails = new DatabaseUserDetailsService(userAccountRepository, environment);
+        assertThatThrownBy(() -> demoDetails.loadUserByUsername("ordinary@example.invalid"))
+                .isInstanceOf(UsernameNotFoundException.class);
     }
 
     @Test

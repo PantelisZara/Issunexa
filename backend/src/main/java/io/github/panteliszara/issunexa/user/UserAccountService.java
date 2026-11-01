@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.user;
 
+import io.github.panteliszara.issunexa.demo.DemoWorkspaceAccess;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,16 +12,20 @@ public class UserAccountService {
 
     private final UserAccountRepository userAccountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final DemoWorkspaceAccess demo;
 
-    public UserAccountService(UserAccountRepository userAccountRepository, PasswordEncoder passwordEncoder) {
+    public UserAccountService(UserAccountRepository userAccountRepository, PasswordEncoder passwordEncoder, DemoWorkspaceAccess demo) {
         this.userAccountRepository = userAccountRepository;
         this.passwordEncoder = passwordEncoder;
+        this.demo = demo;
     }
 
     @Transactional(readOnly = true)
     public UserAccount getAuthenticatedAccount(String principalEmail) {
-        return userAccountRepository.findByEmail(UserAccount.normalizeEmail(principalEmail))
+        UserAccount account = userAccountRepository.findByEmail(UserAccount.normalizeEmail(principalEmail))
                 .orElseThrow(AuthenticatedAccountNotFoundException::new);
+        demo.validate(account);
+        return account;
     }
 
     @Transactional
