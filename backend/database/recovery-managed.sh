@@ -18,13 +18,16 @@ for identifier in "$PGDATABASE" "$PGUSER" "$ISSUNEXA_DB_SCHEMA"; do
     fi
 done
 case "$PGHOST" in
-    */*|*,*|*-pooler.*) printf 'Use one direct TCP host.\n' >&2; exit 1 ;;
+    */*|@*|*,*|*-pooler.*) printf 'Use one direct TCP host.\n' >&2; exit 1 ;;
 esac
 export PGSSLMODE=${PGSSLMODE:-verify-full}
 if [[ $PGSSLMODE != verify-full ]]; then
     printf 'Recovery requires verify-full TLS and a trusted certificate.\n' >&2
     exit 1
 fi
+# libpq must negotiate verified TLS on every connection, including pg_dump.
+# GSS encryption otherwise takes precedence over sslmode and skips certificates.
+export PGGSSENCMODE=disable
 unset PGOPTIONS PGSERVICE PGSERVICEFILE
 export ISSUNEXA_RECOVERY_ACTION=$action
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)

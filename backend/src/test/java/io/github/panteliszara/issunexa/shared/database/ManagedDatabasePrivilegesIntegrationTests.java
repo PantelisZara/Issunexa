@@ -23,6 +23,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.testcontainers.Testcontainers;
 import org.testcontainers.containers.Container.ExecResult;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.MountableFile;
@@ -58,12 +59,13 @@ class ManagedDatabasePrivilegesIntegrationTests {
     private static final String ROTATED_MIGRATION = "rotated-synthetic-migrator-password";
     private static final String ROTATED_RUNTIME = "rotated-synthetic-runtime-password";
 
-    @Test
-    void nonSuperuserProvisionsFreshSchemaAndPreservesDataThroughRerunsAndRotation() throws Exception {
-        try (var postgres = postgres()) {
-            postgres.start();
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void nonSuperuserProvisionsFreshSchemaAndPreservesDataThroughRerunsAndRotation(boolean tlsProxy) throws Exception {
+        try (var endpoint = endpoint(tlsProxy)) {
+            var postgres = endpoint.postgres();
             prepareOwner(postgres);
-            provisionSuccessfully(postgres, MIGRATION_PASSWORD, RUNTIME_PASSWORD);
+            provisionSuccessfully(postgres, MIGRATION_PASSWORD, RUNTIME_PASSWORD, endpoint.environment());
             JdbcTemplate observer = jdbc(postgres, postgres.getUsername(), postgres.getPassword());
             assertThat(observer.queryForObject("SELECT rolsuper FROM pg_roles WHERE rolname = ?", Boolean.class, OWNER)).isFalse();
             try (var context = application(postgres, MIGRATION_PASSWORD, RUNTIME_PASSWORD)) {
@@ -91,10 +93,10 @@ class ManagedDatabasePrivilegesIntegrationTests {
             var rows = rows(observer);
             var history = observer.queryForList("SELECT version, checksum FROM flyway_schema_history ORDER BY installed_rank");
             var sequences = sequences(observer);
-            provisionSuccessfully(postgres, MIGRATION_PASSWORD, RUNTIME_PASSWORD);
+            provisionSuccessfully(postgres, MIGRATION_PASSWORD, RUNTIME_PASSWORD, endpoint.environment());
             assertThat(rows(observer)).isEqualTo(rows);
             assertThat(sequences(observer)).isEqualTo(sequences);
-            provisionSuccessfully(postgres, ROTATED_MIGRATION, ROTATED_RUNTIME);
+            provisionSuccessfully(postgres, ROTATED_MIGRATION, ROTATED_RUNTIME, endpoint.environment());
             assertThat(rows(observer)).isEqualTo(rows);
             assertThat(sequences(observer)).isEqualTo(sequences);
             assertThat(observer.queryForList("SELECT version, checksum FROM flyway_schema_history ORDER BY installed_rank"))
@@ -356,16 +358,17 @@ class ManagedDatabasePrivilegesIntegrationTests {
         }
     }
 
-    @Test
-    void recoversManagedBackupIntoFreshTlsDatabaseWithDataSequencesAndPrivileges() throws Exception {
-        try (var source = postgres(); var target = postgres().withDatabaseName("recovery_target")) {
-            source.start();
-            target.start();
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void recoversManagedBackupIntoFreshTlsDatabaseWithDataSequencesAndPrivileges(boolean tlsProxy) throws Exception {
+        try (var sourceEndpoint = endpoint(tlsProxy); var targetEndpoint = endpoint(tlsProxy, "recovery_target")) {
+            var source = sourceEndpoint.postgres();
+            var target = targetEndpoint.postgres();
             prepareOwner(source);
             prepareOwner(target);
-            provisionSuccessfully(source, MIGRATION_PASSWORD, RUNTIME_PASSWORD);
+            provisionSuccessfully(source, MIGRATION_PASSWORD, RUNTIME_PASSWORD, sourceEndpoint.environment());
             assertRecoverySuccess(provision(target, ROTATED_MIGRATION, ROTATED_RUNTIME,
-                    Map.of("ISSUNEXA_FLYWAY_USERNAME", "recovery_migrator", "ISSUNEXA_DB_USERNAME", "recovery_runtime")));
+                    targetEndpoint.environment(Map.of("ISSUNEXA_FLYWAY_USERNAME", "recovery_migrator", "ISSUNEXA_DB_USERNAME", "recovery_runtime"))));
             Long ticketId;
             try (var context = application(source, MIGRATION_PASSWORD, RUNTIME_PASSWORD)) {
                 var accounts = context.getBean(UserAccountService.class);
@@ -393,10 +396,12 @@ class ManagedDatabasePrivilegesIntegrationTests {
             var expectedSequences = sequences(sourceObserver);
             var expectedHistory = sourceObserver.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
             var sourceBefore = snapshot(sourceObserver);
-            byte[] archive = backup(source);
+            byte[] archive = backup(source, sourceEndpoint.environment());
             assertThat(snapshot(sourceObserver)).isEqualTo(sourceBefore);
             target.copyFileToContainer(Transferable.of(archive, 0600), "/tmp/trusted.dump");
-            var result = recovery(target, ROTATED_MIGRATION, "restore", "/tmp/trusted.dump", Map.of("PGUSER", "recovery_migrator"));
+            var result = recovery(target, ROTATED_MIGRATION, "restore", "/tmp/trusted.dump",
+                    targetEndpoint.environment(Map.of("PGUSER", "recovery_migrator", "PGGSSENCMODE", "require",
+                            "PGSERVICE", "ignored-service", "PGSERVICEFILE", "/tmp/absent-service-file")));
             assertRecoverySuccess(result);
             var targetObserver = jdbc(target, target.getUsername(), target.getPassword());
             assertThat(targetObserver.queryForObject("SELECT has_function_privilege('public', 'issunexa_managed.expire_demo_workspaces()', 'EXECUTE')", Boolean.class)).isFalse();
@@ -423,7 +428,7 @@ class ManagedDatabasePrivilegesIntegrationTests {
                 assertThat(targetObserver.queryForObject("SELECT count(*) FROM ticket_history_entries", Long.class)).isEqualTo(4);
             }
             var before = snapshot(targetObserver);
-            assertRecoveryFailure(recovery(target, ROTATED_MIGRATION, "restore", "/tmp/trusted.dump", Map.of("PGUSER", "recovery_migrator")), "empty provisioned");
+            assertRecoveryFailure(recovery(target, ROTATED_MIGRATION, "restore", "/tmp/trusted.dump", targetEndpoint.environment(Map.of("PGUSER", "recovery_migrator"))), "empty provisioned");
             assertThat(snapshot(targetObserver)).isEqualTo(before);
         }
     }
@@ -493,9 +498,107 @@ class ManagedDatabasePrivilegesIntegrationTests {
         }
     }
 
+    @Test
+    void enforcesVerifiedClientTlsOnEveryOperationWithoutTrustingProxyBackendTls() throws Exception {
+        try (var endpoint = endpoint(true)) {
+            var postgres = endpoint.postgres();
+            var proxy = endpoint.proxy();
+            prepareOwner(postgres);
+            provisionSuccessfully(postgres, MIGRATION_PASSWORD, RUNTIME_PASSWORD, endpoint.environment());
+            Flyway.configure().dataSource(url(postgres), MIGRATOR, MIGRATION_PASSWORD).load().migrate();
+            jdbc(postgres, RUNTIME, RUNTIME_PASSWORD).update("""
+                    INSERT INTO users (email, display_name, password_hash, role, created_at, updated_at)
+                    VALUES ('proxy@example.test', 'Proxy persistence', 'synthetic-hash', 'REQUESTER', now(), now())
+                    """);
+            var observer = jdbc(postgres, postgres.getUsername(), postgres.getPassword());
+
+            // These two observations belong to the same psql connection: verified client TLS,
+            // but plaintext on the proxy's deliberately independent upstream connection.
+            postgres.copyFileToContainer(Transferable.of("""
+                    \\conninfo
+                    SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();
+                    """, 0600), "/tmp/proxy-connection.sql");
+            var connection = libpq(postgres, endpoint.environment(), "psql", "-XAt", "--no-password",
+                    "--set=ON_ERROR_STOP=1", "--file=/tmp/proxy-connection.sql");
+            assertRecoverySuccess(connection);
+            assertThat(connection.getStdout()).containsPattern("TLSv1\\.[23]")
+                    .containsPattern("(?m)^f$");
+
+            // A service entry that would turn TLS off must be ignored; inherited GSS require
+            // must also be overridden so the actual client connection still uses verify-full TLS.
+            postgres.copyFileToContainer(Transferable.of("""
+                    [unsafe-service]
+                    host=127.0.0.1
+                    port=5432
+                    sslmode=disable
+                    """, 0600), "/tmp/proxy-services.conf");
+            var inherited = endpoint.environment(Map.of("PGSERVICE", "unsafe-service",
+                    "PGSERVICEFILE", "/tmp/proxy-services.conf", "PGGSSENCMODE", "require"));
+            int initialConnections = proxy.handshakes();
+            provisionSuccessfully(postgres, MIGRATION_PASSWORD, RUNTIME_PASSWORD, inherited);
+            assertThat(proxy.handshakes()).isEqualTo(initialConnections + 1);
+            byte[] archive = backup(postgres, inherited);
+            assertThat(proxy.handshakes()).isEqualTo(initialConnections + 3); // guard and pg_dump each negotiate TLS
+            postgres.copyFileToContainer(Transferable.of(archive, 0600), "/tmp/proxy-trusted.dump");
+            assertThat(postgres.execInContainer("mkdir", "-m", "700", "/tmp/rejected-backups").getExitCode()).isZero();
+            assertThat(postgres.execInContainer("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                    "-subj", "/CN=unrelated-ca", "-keyout", "/tmp/wrong-ca.key", "-out", "/tmp/wrong-ca.crt")
+                    .getExitCode()).isZero();
+            String proxyAddress = postgres.execInContainer("getent", "hosts", "host.testcontainers.internal")
+                    .getStdout().strip().split("\\s+")[0];
+            record RejectedTransport(String name, Map<String, String> overrides, String error) {}
+            var rejected = List.of(
+                    new RejectedTransport("wrong CA", Map.of("PGSSLROOTCERT", "/tmp/wrong-ca.crt"), "certificate verify failed"),
+                    new RejectedTransport("missing CA", Map.of("PGSSLROOTCERT", "/tmp/missing-ca.crt"), "does not exist"),
+                    new RejectedTransport("hostname mismatch", Map.of("PGHOST", "incorrect.example.test", "PGHOSTADDR", proxyAddress), "does not match host name"),
+                    new RejectedTransport("plaintext server", Map.of(), "does not support SSL"),
+                    new RejectedTransport("abstract socket", Map.of("PGHOST", "@managed-test"), "TCP host"),
+                    new RejectedTransport("weaker SSL mode", Map.of("PGSSLMODE", "require"), "verify-full"),
+                    new RejectedTransport("connection-string database", Map.of("PGDATABASE", "dbname=test sslmode=disable"), "lowercase identifiers"));
+            var before = snapshot(observer);
+            for (var scenario : rejected) {
+                proxy.allowHandshakes(scenario.name().equals("plaintext server") ? 0 : Integer.MAX_VALUE);
+                var environment = endpoint.environment(scenario.overrides());
+                var provisioning = provision(postgres, ROTATED_MIGRATION, ROTATED_RUNTIME, environment);
+                assertRecoveryFailure(provisioning, scenario.error());
+                assertThat(snapshot(observer)).as("provision: " + scenario.name()).isEqualTo(before);
+                assertRecoveryFailure(recovery(postgres, MIGRATION_PASSWORD, "backup", "/tmp/rejected-backups", environment), scenario.error());
+                assertThat(postgres.execInContainer("ls", "-A", "/tmp/rejected-backups").getStdout()).isEmpty();
+                assertThat(snapshot(observer)).as("backup: " + scenario.name()).isEqualTo(before);
+                assertRecoveryFailure(recovery(postgres, MIGRATION_PASSWORD, "restore", "/tmp/proxy-trusted.dump", environment), scenario.error());
+                assertThat(snapshot(observer)).as("restore: " + scenario.name()).isEqualTo(before);
+            }
+            // The backup guard succeeds over TLS, then pg_dump receives an SSL refusal on
+            // its own connection. Its partial archive must be removed without modifying data.
+            proxy.allowHandshakes(proxy.handshakes() + 1);
+            assertRecoveryFailure(recovery(postgres, MIGRATION_PASSWORD, "backup", "/tmp/rejected-backups",
+                    endpoint.environment()), "does not support SSL");
+            assertThat(postgres.execInContainer("ls", "-A", "/tmp/rejected-backups").getStdout()).isEmpty();
+            assertThat(snapshot(observer)).isEqualTo(before);
+            proxy.allowHandshakes(Integer.MAX_VALUE);
+        }
+    }
+
+    private static ExecResult libpq(PostgreSQLContainer postgres, Map<String, String> overrides,
+            String... arguments) throws Exception {
+        var environment = new LinkedHashMap<>(Map.of("PGHOST", "127.0.0.1", "PGDATABASE", postgres.getDatabaseName(),
+                "PGUSER", MIGRATOR, "PGPASSWORD", MIGRATION_PASSWORD, "PGSSLMODE", "verify-full",
+                "PGSSLROOTCERT", "/tmp/managed-test.crt", "PGGSSENCMODE", "disable"));
+        environment.putAll(overrides);
+        var command = new java.util.ArrayList<String>();
+        command.add("env");
+        environment.forEach((name, value) -> command.add(name + "=" + value));
+        command.addAll(List.of(arguments));
+        return postgres.execInContainer(command.toArray(String[]::new));
+    }
+
     private static byte[] backup(PostgreSQLContainer source) throws Exception {
+        return backup(source, Map.of());
+    }
+
+    private static byte[] backup(PostgreSQLContainer source, Map<String, String> overrides) throws Exception {
         assertThat(source.execInContainer("mkdir", "-p", "-m", "700", "/tmp/private-backups").getExitCode()).isZero();
-        var result = recovery(source, MIGRATION_PASSWORD, "backup", "/tmp/private-backups", Map.of());
+        var result = recovery(source, MIGRATION_PASSWORD, "backup", "/tmp/private-backups", overrides);
         assertRecoverySuccess(result);
         String archive = result.getStdout().strip();
         assertThat(archive).matches("/tmp/private-backups/issunexa\\.[A-Za-z0-9]+\\.dump");
@@ -527,15 +630,64 @@ class ManagedDatabasePrivilegesIntegrationTests {
         assertThat(result.getStderr()).contains(message);
     }
 
+    private record ManagedEndpoint(PostgreSQLContainer postgres, PostgresTlsProxy proxy) implements AutoCloseable {
+        Map<String, String> environment() {
+            return environment(Map.of());
+        }
+
+        Map<String, String> environment(Map<String, String> overrides) {
+            var environment = new LinkedHashMap<String, String>();
+            if (proxy != null) {
+                environment.put("PGHOST", "host.testcontainers.internal");
+                environment.put("PGPORT", Integer.toString(proxy.port()));
+            }
+            environment.putAll(overrides);
+            return environment;
+        }
+
+        @Override
+        public void close() throws Exception {
+            try {
+                if (proxy != null) proxy.close();
+            } finally {
+                postgres.close();
+            }
+        }
+    }
+
+    private static ManagedEndpoint endpoint(boolean tlsProxy) throws Exception {
+        return endpoint(tlsProxy, "test");
+    }
+
+    private static ManagedEndpoint endpoint(boolean tlsProxy, String database) throws Exception {
+        var postgres = postgres().withDatabaseName(database);
+        PostgresTlsProxy proxy = tlsProxy ? new PostgresTlsProxy() : null;
+        var endpoint = new ManagedEndpoint(postgres, proxy);
+        try {
+            if (proxy != null) Testcontainers.exposeHostPorts(proxy.port());
+            postgres.start();
+            if (proxy != null) {
+                proxy.start(postgres.getHost(), postgres.getMappedPort(5432),
+                        postgres.copyFileFromContainer("/tmp/managed-proxy.p12", InputStream::readAllBytes));
+            }
+            return endpoint;
+        } catch (Exception error) {
+            endpoint.close();
+            throw error;
+        }
+    }
+
     private static PostgreSQLContainer postgres() {
         // A generated disposable certificate tests the actual verify-full psql entry point.
         String tls = """
                 #!/bin/sh
                 set -eu
                 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \\
-                    -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \\
+                    -addext 'subjectAltName=DNS:localhost,DNS:host.testcontainers.internal,IP:127.0.0.1' \\
                     -keyout "$PGDATA/server.key" -out "$PGDATA/server.crt" >/dev/null 2>&1
-                chmod 600 "$PGDATA/server.key"
+                openssl pkcs12 -export -inkey "$PGDATA/server.key" -in "$PGDATA/server.crt" \\
+                    -out /tmp/managed-proxy.p12 -passout pass:synthetic-proxy-password >/dev/null 2>&1
+                chmod 600 "$PGDATA/server.key" /tmp/managed-proxy.p12
                 cp "$PGDATA/server.crt" /tmp/managed-test.crt
                 printf '\\nssl=on\\n' >> "$PGDATA/postgresql.conf"
                 """;
@@ -571,7 +723,12 @@ class ManagedDatabasePrivilegesIntegrationTests {
     }
 
     private static void provisionSuccessfully(PostgreSQLContainer postgres, String migrationPassword, String runtimePassword) throws Exception {
-        var result = provision(postgres, migrationPassword, runtimePassword, Map.of());
+        provisionSuccessfully(postgres, migrationPassword, runtimePassword, Map.of());
+    }
+
+    private static void provisionSuccessfully(PostgreSQLContainer postgres, String migrationPassword,
+            String runtimePassword, Map<String, String> overrides) throws Exception {
+        var result = provision(postgres, migrationPassword, runtimePassword, overrides);
         assertThat(result.getStdout() + result.getStderr()).doesNotContain(migrationPassword, runtimePassword);
         assertThat(result.getExitCode()).withFailMessage("%s", result.getStderr()).isZero();
     }

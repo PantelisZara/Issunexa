@@ -24,7 +24,7 @@ for identifier in "$PGDATABASE" "$PGUSER" "$ISSUNEXA_DB_SCHEMA" "$ISSUNEXA_FLYWA
     fi
 done
 case "$PGHOST" in
-    */*|*,*|*-pooler.*) printf 'Use a single direct TCP host, not a socket or pooled endpoint.\n' >&2; exit 1 ;;
+    */*|@*|*,*|*-pooler.*) printf 'Use a single direct TCP host, not a socket or pooled endpoint.\n' >&2; exit 1 ;;
 esac
 PGSSLMODE=${PGSSLMODE:-verify-full}
 export PGSSLMODE
@@ -38,5 +38,8 @@ if [ ${#ISSUNEXA_FLYWAY_PASSWORD} -lt 24 ] || [ ${#ISSUNEXA_DB_PASSWORD} -lt 24 
     printf 'Supply distinct externally generated application passwords of at least 24 characters.\n' >&2
     exit 1
 fi
+# libpq must negotiate verified TLS on every connection, including pg_dump.
+# GSS encryption otherwise takes precedence over sslmode and skips certificates.
+export PGGSSENCMODE=disable
 unset PGOPTIONS PGSERVICE PGSERVICEFILE
 exec psql -X --set=ON_ERROR_STOP=1 --file="$(dirname "$0")/provision-managed.sql"

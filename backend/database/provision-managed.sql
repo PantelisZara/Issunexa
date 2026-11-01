@@ -1,4 +1,6 @@
--- Separate managed entry point. Never adopt existing unmarked objects or roles.
+-- Internal SQL for provision-managed.sh; its libpq client enforces verify-full TLS.
+-- pg_stat_ssl observes the backend hop, not TLS terminated by a provider proxy.
+-- Never adopt existing unmarked objects or roles.
 -- Suppress dynamic-statement contexts, which could otherwise expose passwords.
 \set VERBOSITY terse
 \set SHOW_CONTEXT never
@@ -39,9 +41,8 @@ BEGIN
        OR current_user <> current_setting('issunexa.managed.administrator')
        OR (SELECT datdba FROM pg_database WHERE oid = database_id) <> administrator
        OR NOT (SELECT NOT rolsuper AND rolcreaterole FROM pg_roles WHERE oid = administrator)
-       OR current_setting('server_version_num')::integer < 160000
-       OR NOT EXISTS (SELECT 1 FROM pg_stat_ssl WHERE pid = pg_backend_pid() AND ssl) THEN
-        RAISE EXCEPTION 'Requires PostgreSQL 16+, verified TLS and the non-superuser database owner with CREATEROLE';
+       OR current_setting('server_version_num')::integer < 160000 THEN
+        RAISE EXCEPTION 'Requires PostgreSQL 16+ and the non-superuser database owner with CREATEROLE';
     END IF;
     FOREACH role_name IN ARRAY ARRAY[current_database(), current_user, application_schema, migration_role, runtime_role] LOOP
         IF role_name !~ '^[a-z][a-z0-9_]{0,62}$' OR role_name LIKE 'pg\_%' OR role_name LIKE 'neon\_%' THEN
