@@ -22,6 +22,10 @@ Runtime receives `CONNECT`, schema `USAGE`, table `SELECT`/`INSERT` on `users`, 
 
 Spring Boot's [separate Flyway datasource](https://docs.spring.io/spring-boot/how-to/data-initialization.html) uses `spring.flyway.user/password` with the same database URL, while JPA uses `spring.datasource.username/password`. Hibernate still validates, never creates or updates the schema. Migration credentials remain available to the backend process for startup Flyway; this separation restricts runtime connections, not a fully compromised process that can read its environment.
 
+### Managed PostgreSQL
+
+The separate [managed provisioning guide](managed-postgresql.md) prepares a fresh dedicated managed database using its non-superuser owner with CREATEROLE, ordinary SQL-created migrator/runtime roles and a dedicated application schema. It preserves this local superuser bootstrap and V1–V9 checksums. The shared grant callback validates managed schema/role markers, while preserving the local session setting and `public` default. Portable PostgreSQL tests do not establish actual Neon administration, TLS, suspension or restore behavior; those remain separate acceptance gates.
+
 ### Fresh initialization
 
 Copy `.env.example` only if `.env` is absent; fill all three password fields and retain the default distinct role names. From the repository root:
