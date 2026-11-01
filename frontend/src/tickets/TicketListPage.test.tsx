@@ -6,6 +6,8 @@ import { App } from '../app/App';
 import { ticket, ticketPage } from '../test/ticketFixtures';
 import type { TicketPage } from './ticketTypes';
 
+vi.mock('../auth/demoApi', () => ({ getDemo: async () => ({ enabled: false, active: false, expiresAt: null }) }));
+
 const fetchMock = vi.fn<typeof fetch>();
 const account = { id: 7, email: 'synthetic@example.test', displayName: 'Synthetic Requester', role: 'REQUESTER' };
 

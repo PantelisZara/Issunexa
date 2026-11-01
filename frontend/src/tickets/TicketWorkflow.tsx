@@ -48,6 +48,8 @@ export function TicketWorkflow({ ticket, onUpdated, onRefresh }: {
                 // Authorization and CSRF failures share the backend's generic 403 contract.
                 refreshCsrf.current = true;
                 setError({ message: 'This action was not permitted or your session changed. Try again to refresh your session.', reloadRequired: false });
+            } else if (failure instanceof ApiError && failure.status === 429) {
+                setError({ message: 'This synthetic workspace has reached its history limit. Explore its existing activity instead.', reloadRequired: false });
             } else if (failure instanceof ApiError && failure.status === 409) {
                 setError({ message: 'The ticket changed or this action is no longer available. Refresh the ticket before trying again.', reloadRequired: true });
             } else if (failure instanceof ApiError && failure.status === 404) {

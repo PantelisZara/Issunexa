@@ -3,6 +3,7 @@ import { useAuth } from '../auth/useAuth';
 import { AccountPanel } from './AccountPanel';
 import { Brand } from './Brand';
 import { ThemeControl } from './ThemeControl';
+import { DemoControls } from './DemoControls';
 
 export function AppShell() {
     const { state } = useAuth();
@@ -23,6 +24,7 @@ export function AppShell() {
                 </div>
             </header>
             <main id="main-content" className={`main-content${authenticated ? '' : ' public-content'}`} tabIndex={-1}>
+                <DemoControls />
                 <Outlet />
             </main>
         </>

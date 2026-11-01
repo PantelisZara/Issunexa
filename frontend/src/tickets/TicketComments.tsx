@@ -81,7 +81,9 @@ export function TicketComments({ ticketId, onNotFound }: { ticketId: string; onN
             if (controller.signal.aborted) return;
             if (failure instanceof ApiError && failure.status === 401) expireSession();
             else if (failure instanceof ApiError && failure.status === 404) onNotFound();
-            else if (failure instanceof ApiError && failure.status === 400) {
+            else if (failure instanceof ApiError && failure.status === 429) {
+                setFormError({ message: 'This synthetic workspace has reached its comment limit. Explore the existing conversation instead.', requiresRefresh: false });
+            } else if (failure instanceof ApiError && failure.status === 400) {
                 setFormError({ message: 'We could not add the comment. Enter a nonblank comment of at most 4,000 characters.', requiresRefresh: false, invalid: true });
             } else if (failure instanceof ApiError && failure.status === 403) {
                 refreshCsrf.current = true;

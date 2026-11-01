@@ -2,8 +2,14 @@
 set -Eeuo pipefail
 
 artifact=false
+demo=false
 if [[ ${1:-} == --artifact ]]; then
     artifact=true
+    shift
+fi
+if [[ ${1:-} == --demo ]]; then
+    artifact=true
+    demo=true
     shift
 fi
 
@@ -37,6 +43,9 @@ if $artifact; then
     compose+=(-f "$repo_dir/compose.artifact.e2e.yaml")
     build_services=(postgres backend playwright)
     start_services=(postgres backend)
+fi
+if $demo; then
+    compose+=(-f "$repo_dir/compose.demo.e2e.yaml")
 fi
 compose_ready=false
 cleanup() {
@@ -98,15 +107,22 @@ compose_ready=true
 "${compose[@]}" build "${build_services[@]}"
 "${compose[@]}" up -d "${start_services[@]}"
 "${compose[@]}" run --rm --no-deps -T playwright node e2e/wait-ready.mjs
-"${compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U issunexa_e2e -d issunexa_e2e \
-    < e2e/fixtures/accounts.sql
+if ! $demo; then
+    "${compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U issunexa_e2e -d issunexa_e2e \
+        < e2e/fixtures/accounts.sql
+fi
 if $artifact; then
-    "${compose[@]}" run --rm --no-deps -T playwright \
-        xvfb-run -a npm exec -- playwright test \
-        --project=chromium-desktop --project=chromium-mobile "$@"
-    "${compose[@]}" run --rm --no-deps -T playwright \
-        xvfb-run -a npm exec -- playwright test \
-        --config=playwright.artifact.config.ts --project=chromium-artifact-contract
+    if $demo; then
+        "${compose[@]}" run --rm --no-deps -T playwright \
+            xvfb-run -a npm exec -- playwright test --config=playwright.demo.config.ts "$@"
+    else
+        "${compose[@]}" run --rm --no-deps -T playwright \
+            xvfb-run -a npm exec -- playwright test \
+            --project=chromium-desktop --project=chromium-mobile "$@"
+        "${compose[@]}" run --rm --no-deps -T playwright \
+            xvfb-run -a npm exec -- playwright test \
+            --config=playwright.artifact.config.ts --project=chromium-artifact-contract
+    fi
     # Inspect the actual tested service, not a separate unconstrained image.
     "${compose[@]}" exec -T backend sh -ec '
         test "$(id -u)" = 10001

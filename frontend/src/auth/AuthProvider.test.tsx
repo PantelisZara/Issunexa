@@ -5,10 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/ApiError';
 import { AuthProvider } from './AuthProvider';
 import * as authApi from './authApi';
+import * as demoApi from './demoApi';
 import type { CsrfMetadata } from './authTypes';
 import { useAuth } from './useAuth';
 
 vi.mock('./authApi');
+vi.mock('./demoApi');
 const api = vi.mocked(authApi);
 const tokenA = { token: 'test-A', headerName: 'X-TEST-CSRF' };
 const tokenB = { token: 'test-B', headerName: 'X-ROTATED-CSRF' };
@@ -41,6 +43,7 @@ function renderProvider() {
 
 beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(demoApi.getDemo).mockResolvedValue({ enabled: false, active: false, expiresAt: null });
     api.getCsrf.mockResolvedValue(tokenA);
     api.getSession.mockResolvedValue(account);
 });

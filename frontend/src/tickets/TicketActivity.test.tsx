@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../app/App';
 import { comment, commentPage, historyEntries, historyPage, ticket } from '../test/ticketFixtures';
 
+vi.mock('../auth/demoApi', () => ({ getDemo: async () => ({ enabled: false, active: false, expiresAt: null }) }));
+
 const fetchMock = vi.fn<typeof fetch>();
 const commentsMock = vi.fn<(path: string, options?: RequestInit) => Promise<Response>>();
 const historyMock = vi.fn<(path: string, options?: RequestInit) => Promise<Response>>();
@@ -392,4 +394,12 @@ describe('Activity failure isolation and workflow integration', () => {
         expect(comments().queryByText('Comment added.')).not.toBeInTheDocument();
         expect(comments().getByLabelText('New comment')).toHaveValue('');
     });
+});
+
+it('explains demo comment capacity without automatically repeating a comment', async () => {
+    createMock.mockResolvedValue(problem(429));
+    renderDetail(); await loaded();
+    await submitComment();
+    expect(await screen.findByRole('alert')).toHaveTextContent('comment limit');
+    expect(createMock).toHaveBeenCalledTimes(1);
 });

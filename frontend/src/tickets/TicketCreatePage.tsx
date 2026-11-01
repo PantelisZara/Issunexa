@@ -72,6 +72,8 @@ export function TicketCreatePage() {
             if (controller.signal.aborted) return;
             if (failure instanceof ApiError && failure.status === 401) {
                 expireSession();
+            } else if (failure instanceof ApiError && failure.status === 429) {
+                setError({ message: 'This synthetic workspace has reached its ticket or history limit. Explore its existing tickets instead.' });
             } else if (failure instanceof ApiError && failure.status === 400) {
                 setError(validationError(failure));
             } else if (failure instanceof ApiError && failure.status === 403) {

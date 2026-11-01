@@ -16,7 +16,8 @@
         "test:e2e": "bash e2e/run-e2e.sh",
         "test:e2e:headed": "bash e2e/run-e2e.sh --headed",
         "typecheck:e2e": "tsc -p tsconfig.e2e.json",
-        "test:e2e:artifact": "bash e2e/run-e2e.sh --artifact"
+        "test:e2e:artifact": "bash e2e/run-e2e.sh --artifact",
+        "test:e2e:demo": "bash e2e/run-e2e.sh --demo"
     },
     "dependencies": {
         "react": "~19.3.0",

@@ -5,7 +5,7 @@ import { useAuth } from '../auth/useAuth';
 import { Brand } from '../components/Brand';
 
 export function LoginPage() {
-    const { state, pending, login } = useAuth();
+    const { state, pending, login, demo, demoMessage, transitionDemo } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | undefined>();
@@ -22,7 +22,19 @@ export function LoginPage() {
         setError(message);
     }
 
-    const message = error ?? state.message;
+    const message = error ?? demoMessage ?? state.message;
+    if (demo?.enabled) return (
+        <section className="auth-panel demo-start" aria-labelledby="demo-heading" aria-busy={pending}>
+            <Brand />
+            <p className="auth-product-name">Issue &amp; Service Management</p>
+            <h1 id="demo-heading">Explore the synthetic demo</h1>
+            <p>Try a private sample workspace as a requester, then switch to an agent to handle your ticket.</p>
+            <p className="muted">No account or password needed. Use invented information only. Your workspace expires after 30 minutes; ending the demo or losing its cookie ends access.</p>
+            <p className="muted">Includes sample tickets. Limited to 8 tickets and 20 comments per workspace.</p>
+            {message && <p role="alert" className="error-message">{message}</p>}
+            <button type="button" disabled={pending} onClick={() => { void transitionDemo('start'); }}>Start synthetic demo</button>
+        </section>
+    );
     return (
         <section className="auth-panel" aria-labelledby="login-heading">
             <Brand />

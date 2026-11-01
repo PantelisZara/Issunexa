@@ -166,3 +166,10 @@ button:disabled { color: var(--disabled-text); background: var(--disabled-surfac
     .site-header-inner { column-gap: var(--space-2); }
     .primary-navigation a { padding-inline: var(--space-2); }
 }
+
+.demo-start > button { width: 100%; }
+.demo-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.demo-controls h2 { margin-bottom: var(--space-1); font-size: 1rem; }
+.demo-controls p { margin: 0; font-size: 0.8125rem; color: var(--text-secondary); }
+.demo-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.demo-controls .error-message { flex-basis: 100%; color: var(--danger); }
