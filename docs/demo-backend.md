@@ -1,6 +1,6 @@
 # Isolated synthetic demo backend
 
-This is a backend foundation for issue #15, not a deployed or fully accepted public demo. UI discovery/start/switch, full demo browser journeys, independent review, hosted CI and actual ingress/provider acceptance remain separate work. [ADR007](decisions/007-isolated-demo-workspaces.md) records the decision.
+The backend and [credential-free UI](demo-ui.md) provide an isolated synthetic demo verified locally through the built artifact. Independent review, backend tests, ordinary regressions and demo browser journeys are recorded in [testing.md](testing.md#verified-snapshot). Actual ingress/provider acceptance and a public hosted demo remain unverified. [ADR007](decisions/007-isolated-demo-workspaces.md) records the decision.
 
 ## Enable deliberately
 
@@ -53,4 +53,4 @@ Cleanup runs during admission and at most once per minute on actual bound-sessio
 
 ## Verification boundary
 
-`DemoIntegrationTests` use real PostgreSQL and embedded HTTP sessions for two-visitor negative paths, forged selectors, correct-known-password rejection, old-cookie/CSRF replay, role switch/logout, absolute expiry before deletion, concurrent ticket/comment/history and retention quotas, source/global admission, startup guards, cleanup batches and anonymous-session saturation. Strict and managed privilege regressions additionally exercise real restricted runtime demo writes and cleanup, deny DELETE/UPDATE/DDL/signature misuse and preserve ordinary/active/inconsistently referenced rows. Focused development results are recorded with the implementation handoff; full backend and existing artifact/Nginx/browser gates remain required before integration.
+`DemoIntegrationTests` use real PostgreSQL and embedded HTTP sessions for two-visitor negative paths, forged selectors, correct-known-password rejection, old-cookie/CSRF replay, role switch/logout, absolute expiry before deletion, concurrent ticket/comment/history and retention quotas, source/global admission, startup guards, cleanup batches and anonymous-session saturation. Strict and managed privilege regressions additionally exercise real restricted runtime demo writes and cleanup, deny DELETE/UPDATE/DDL/signature misuse and preserve ordinary/active/inconsistently referenced rows. [PR19](https://github.com/PantelisZara/Issunexa/pull/19) records the 675-test integrated backend result and hosted gates; [PR #20](https://github.com/PantelisZara/Issunexa/pull/20) records UI and built-artifact browser acceptance. Future source changes still require matching affected gates.

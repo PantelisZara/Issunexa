@@ -61,6 +61,8 @@ Deterministic [limiter tests](../backend/src/test/java/io/github/panteliszara/is
 
 All `/api/tickets/**` requests require authentication. The service resolves the actor from the principal; requester, author and assignee identities are not accepted from client-selected account fields.
 
+The following matrix describes **ordinary mode**. In demo mode, both roles are additionally restricted to their own server-bound workspace; there is no demo administrator.
+
 | Operation | REQUESTER | AGENT / ADMIN |
 | --- | --- | --- |
 | Create Ticket | Allowed; actor becomes requester | Allowed; actor becomes requester |
@@ -78,7 +80,7 @@ Response DTOs limit exposed account information: assignee/comment-author/history
 
 The normal [Compose stack](../compose.yaml) uses local HTTP, a required database password and loopback backend/database bindings. [Nginx](../frontend/nginx.conf) forwards the existing session/CSRF contract and disables proxy caching for `/api`; it is not an authorization layer. Its static-file health check does not prove API readiness. E2E-only synthetic accounts and credentials belong to the [disposable test runner](../frontend/e2e/run-e2e.sh), not the normal application database.
 
-[Database privilege separation](database.md#database-roles-and-provisioning) gives bootstrap administration, Flyway schema ownership and JPA runtime traffic distinct roles. The backend receives migration/runtime credentials for separate connections, never the bootstrap administrator's password. Runtime cannot administer roles/databases, modify schema, truncate/delete data or access Flyway history; grants preserve normal account creation, Ticket mutations and append-only comments/history. This limits a compromised runtime connection; a process compromise can still expose startup migration credentials. Existing installations need the documented non-destructive provisioning step, not a volume reset.
+[Database privilege separation](database.md#database-roles-and-provisioning) gives bootstrap administration, Flyway schema ownership and JPA runtime traffic distinct roles. The backend receives migration/runtime credentials for separate connections, never the bootstrap administrator's password. Runtime cannot administer roles/databases, modify schema, issue arbitrary TRUNCATE/DELETE or access Flyway history. The migration-owned `expire_demo_workspaces()` routine is its only deletion capability: no parameters, at most five expired synthetic workspaces, fixed safe search path and PUBLIC execution revoked. Ticket UPDATE is restricted to seven ORM-mutable columns, preserving requester provenance. Grants retain normal account creation, Ticket mutations and append-only comments/history. This limits a compromised runtime connection; a process compromise can still expose startup migration credentials. Existing installations need the documented non-destructive provisioning step, not a volume reset.
 
 Session cookies require CSRF coordination on browser writes, and client route guards cannot replace server authorization. These are consequences of the current design, not evidence of a completed production security assessment. See [authentication integration tests](../backend/src/test/java/io/github/panteliszara/issunexa/auth/api/AuthenticationIntegrationTests.java) and [Ticket authorization tests](../backend/src/test/java/io/github/panteliszara/issunexa/ticket/api/TicketAuthorizationIntegrationTests.java) for executable contracts.
 
@@ -89,3 +91,9 @@ Session cookies require CSRF coordination on browser writes, and client route gu
 [Development glob assessment](minimatch-assessment-sec04.md) records the newly reported minimatch advisory, its twelve moderate audit entries, scoped current reachability and reassessment triggers; a full-audit zero-finding claim is no longer current.
 
 [Public HTTPS preparation](public-https.md) defines the opt-in cookie, canonical-origin and ingress contract, its startup guards and the live verification still required before public exposure.
+
+## Synthetic demo and managed operations
+
+The opt-in `public,demo` mode rejects ordinary accounts/data at startup and rejects all password authentication. Fixed CSRF-protected start/requester/agent actions use the existing server-side session strategy; session IDs/tokens rotate and no client-selected account or workspace is accepted. Persisted visibility covers ticket lists/details, comments/history and staff mutations. Absolute expiry and per-workspace quotas are database-enforced; bounded process-local admission/session budgets supplement them. Activity-triggered cleanup allows the database to sleep; expiry denial does not depend on physical deletion. See [exact limits and negative tests](demo-backend.md) and [client no-replay recovery](demo-ui.md).
+
+[Managed provisioning](managed-postgresql.md) creates ordinary SQL roles and a dedicated marked schema over verify-full TLS without deploying owner credentials. [Logical recovery](managed-recovery.md) accepts only trusted executable archives and an independently provisioned empty target, restoring data/sequences/grants transactionally. Neither local TLS fixtures nor logical row quotas prove provider certificate configuration, actual storage headroom, off-host archive retention or public ingress security; those remain [release gates](operations.md#release-and-provider-acceptance).
