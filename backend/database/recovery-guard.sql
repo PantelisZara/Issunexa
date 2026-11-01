@@ -1,3 +1,5 @@
+-- Internal SQL for recovery-managed.sh; each libpq client enforces verify-full TLS.
+-- A provider TLS proxy can leave pg_stat_ssl false for the backend hop.
 \getenv requested_schema ISSUNEXA_DB_SCHEMA
 \getenv requested_database PGDATABASE
 \getenv requested_user PGUSER
@@ -18,12 +20,11 @@ BEGIN
     IF current_database() <> current_setting('issunexa.recovery_database')
        OR current_user <> current_setting('issunexa.recovery_user')
        OR current_setting('server_version_num')::integer NOT BETWEEN 180000 AND 189999
-       OR NOT EXISTS (SELECT 1 FROM pg_stat_ssl WHERE pid = pg_backend_pid() AND ssl)
        OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolcanlogin
                       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit))
        OR (SELECT nspowner FROM pg_namespace WHERE oid = schema_id) IS DISTINCT FROM
           (SELECT oid FROM pg_roles WHERE rolname = current_user) THEN
-        RAISE EXCEPTION 'Recovery requires PostgreSQL18, TLS and the marked schema-owning migrator';
+        RAISE EXCEPTION 'Recovery requires PostgreSQL18 and the marked schema-owning migrator';
     END IF;
     parts := regexp_match(schema_marker,
         '^Issunexa managed schema for database ([a-z][a-z0-9_]{0,62}) migrator ([a-z][a-z0-9_]{0,62}) runtime ([a-z][a-z0-9_]{0,62}) administrator ([a-z][a-z0-9_]{0,62})$');
