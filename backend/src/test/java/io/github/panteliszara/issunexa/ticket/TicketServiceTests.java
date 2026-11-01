@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.demo.DemoWorkspaceAccess;
 import io.github.panteliszara.issunexa.ticket.history.TicketHistoryEntry;
 import io.github.panteliszara.issunexa.ticket.history.TicketHistoryRepository;
 import io.github.panteliszara.issunexa.ticket.history.TicketHistoryType;
@@ -44,6 +45,9 @@ class TicketServiceTests {
     private static final String EMAIL = "alice@example.com";
 
     @Mock
+    private DemoWorkspaceAccess demo;
+
+    @Mock
     private TicketRepository ticketRepository;
 
     @Mock
@@ -59,7 +63,7 @@ class TicketServiceTests {
 
     @BeforeEach
     void setUp() {
-        ticketService = new TicketService(ticketRepository, userAccountRepository, historyRepository);
+        ticketService = new TicketService(ticketRepository, userAccountRepository, historyRepository, demo);
         ReflectionTestUtils.setField(requester, "id", 7L);
     }
 

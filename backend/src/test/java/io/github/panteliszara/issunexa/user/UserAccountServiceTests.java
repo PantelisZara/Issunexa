@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.user;
 
+import io.github.panteliszara.issunexa.demo.DemoWorkspaceAccess;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +27,9 @@ import static org.mockito.Mockito.when;
 class UserAccountServiceTests {
 
     @Mock
+    private DemoWorkspaceAccess demo;
+
+    @Mock
     private UserAccountRepository userAccountRepository;
 
     @Mock
@@ -35,7 +39,7 @@ class UserAccountServiceTests {
 
     @BeforeEach
     void setUp() {
-        userAccountService = new UserAccountService(userAccountRepository, passwordEncoder);
+        userAccountService = new UserAccountService(userAccountRepository, passwordEncoder, demo);
     }
 
     @Test

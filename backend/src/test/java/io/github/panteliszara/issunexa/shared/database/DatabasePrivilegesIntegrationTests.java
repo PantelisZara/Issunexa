@@ -74,6 +74,8 @@ class DatabasePrivilegesIntegrationTests {
                 assertThat(runtime.queryForObject("SELECT count(*) FROM ticket_comments", Long.class)).isEqualTo(1);
                 assertThat(runtime.queryForObject("SELECT nextval('tickets_id_seq')", Long.class)).isGreaterThan(ticket.getId());
                 JdbcTemplate migration = jdbc(postgres, MIGRATION, MIGRATION_PASSWORD);
+                DemoPrivilegeAssertions.verify(migration, runtime);
+                DemoPrivilegeAssertions.verifyRuntimeWorkflows(context);
                 migration.execute("CREATE TABLE public.future_table (id bigint)");
                 assertDenied(runtime, "SELECT * FROM future_table");
                 migration.execute("DROP TABLE public.future_table");
@@ -95,7 +97,7 @@ class DatabasePrivilegesIntegrationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"8", "9"})
+    @ValueSource(strings = {"8", "9", "10"})
     void existingRowsSurviveRepeatableOwnershipUpgradeAndMigrationValidation(String version) throws Exception {
         try (var postgres = postgres()) {
             postgres.start();
@@ -132,6 +134,9 @@ class DatabasePrivilegesIntegrationTests {
                 JdbcTemplate runtime = context.getBean(JdbcTemplate.class);
                 context.getBean(Flyway.class).validate();
                 var after = snapshot(runtime);
+                if (!version.equals("10")) {
+                    after.get("users").forEach(row -> assertThat(row.remove("demo_workspace_id")).isNull());
+                }
                 if (version.equals("8")) {
                     after.get("tickets").forEach(row -> assertThat(row.remove("category")).isEqualTo("OTHER"));
                 }
@@ -148,6 +153,45 @@ class DatabasePrivilegesIntegrationTests {
                 assertThat(context.getBean(TicketService.class).createTicket("Next", "New row", TicketPriority.LOW,
                         TicketCategory.OTHER, account.getEmail()).getId()).isGreaterThan(1);
             }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"public-execute", "search-path", "null-search-path", "runtime-owner", "unknown-function",
+            "column-requester", "column-public", "column-outsider", "column-select", "column-grant-option"})
+    void strictProvisioningRejectsCleanupTamperingWithoutNormalizingIt(String scenario) throws Exception {
+        try (var postgres = postgres()) {
+            postgres.start();
+            bootstrap(postgres);
+            Flyway.configure().dataSource(postgres.getJdbcUrl(), MIGRATION, MIGRATION_PASSWORD).load().migrate();
+            JdbcTemplate observer = jdbc(postgres, postgres.getUsername(), postgres.getPassword());
+            JdbcTemplate migration = jdbc(postgres, MIGRATION, MIGRATION_PASSWORD);
+            switch (scenario) {
+                case "public-execute" -> migration.execute("GRANT EXECUTE ON FUNCTION expire_demo_workspaces() TO PUBLIC");
+                case "search-path" -> migration.execute("ALTER FUNCTION expire_demo_workspaces() SET search_path = public");
+                case "null-search-path" -> migration.execute("ALTER FUNCTION expire_demo_workspaces() RESET ALL");
+                case "runtime-owner" -> observer.execute("ALTER FUNCTION expire_demo_workspaces() OWNER TO issunexa_runtime");
+                case "column-requester" -> migration.execute("GRANT UPDATE (requester_id) ON tickets TO issunexa_runtime");
+                case "column-public" -> migration.execute("GRANT UPDATE (title) ON tickets TO PUBLIC");
+                case "column-select" -> migration.execute("GRANT SELECT (title) ON tickets TO issunexa_runtime");
+                case "column-grant-option" -> migration.execute("GRANT UPDATE (title) ON tickets TO issunexa_runtime WITH GRANT OPTION");
+                case "column-outsider" -> {
+                    observer.execute("CREATE ROLE unrelated");
+                    migration.execute("GRANT UPDATE (title) ON tickets TO unrelated");
+                }
+                case "unknown-function" -> migration.execute("CREATE FUNCTION unexpected() RETURNS integer LANGUAGE sql AS 'SELECT 1'");
+                default -> throw new IllegalArgumentException(scenario);
+            }
+            var before = observer.queryForList("SELECT oid,proname,proowner,proconfig::text,proacl::text FROM pg_proc WHERE pronamespace = 'public'::regnamespace ORDER BY oid");
+            var columnsBefore = observer.queryForList("SELECT attrelid,attnum,attacl::text FROM pg_attribute WHERE attacl IS NOT NULL ORDER BY attrelid,attnum");
+            if (scenario.startsWith("column-")) {
+                assertThatThrownBy(() -> Flyway.configure().dataSource(postgres.getJdbcUrl(), MIGRATION, MIGRATION_PASSWORD).load().migrate())
+                        .rootCause().isInstanceOfSatisfying(PSQLException.class,
+                                error -> assertThat(error.getMessage()).contains("column grants"));
+            }
+            assertThat(provision(postgres).getExitCode()).isNotZero();
+            assertThat(observer.queryForList("SELECT attrelid,attnum,attacl::text FROM pg_attribute WHERE attacl IS NOT NULL ORDER BY attrelid,attnum")).isEqualTo(columnsBefore);
+            assertThat(observer.queryForList("SELECT oid,proname,proowner,proconfig::text,proacl::text FROM pg_proc WHERE pronamespace = 'public'::regnamespace ORDER BY oid")).isEqualTo(before);
         }
     }
 

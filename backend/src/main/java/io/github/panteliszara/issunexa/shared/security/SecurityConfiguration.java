@@ -4,6 +4,9 @@ import io.github.panteliszara.issunexa.auth.LoginAttemptLimiter;
 import io.github.panteliszara.issunexa.auth.LoginSourceResolver;
 import io.github.panteliszara.issunexa.auth.LoginSourceThrottleFilter;
 import io.github.panteliszara.issunexa.auth.LoginThrottleProperties;
+import io.github.panteliszara.issunexa.demo.DemoActivityFilter;
+import io.github.panteliszara.issunexa.demo.DemoWorkspaceService;
+import org.springframework.beans.factory.ObjectProvider;
 import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -94,7 +97,7 @@ public class SecurityConfiguration {
             AuthenticationManager authenticationManager, HttpSessionSecurityContextRepository contextRepository,
             HttpSessionCsrfTokenRepository csrfRepository, SecurityContextHolderStrategy holderStrategy,
             SecurityProblemHandler problemHandler, LoginAttemptLimiter loginLimiter,
-            LoginSourceResolver loginSourceResolver, Environment environment) throws Exception {
+            LoginSourceResolver loginSourceResolver, Environment environment, ObjectProvider<DemoWorkspaceService> demoWorkspaces) throws Exception {
         if (environment.matchesProfiles("public")) {
             http.headers(headers -> headers.referrerPolicy(referrer -> referrer
                     .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)));
@@ -102,6 +105,9 @@ public class SecurityConfiguration {
         http.setSharedObject(SecurityContextHolderStrategy.class, holderStrategy);
         http.addFilterBefore(new LoginSourceThrottleFilter(loginLimiter, loginSourceResolver, problemHandler),
                 CsrfFilter.class);
+        if (environment.matchesProfiles("demo")) {
+            http.addFilterBefore(new DemoActivityFilter(demoWorkspaces.getObject()), CsrfFilter.class);
+        }
         http.authenticationManager(authenticationManager)
                 .securityContext(context -> context
                         .requireExplicitSave(true)
@@ -121,6 +127,11 @@ public class SecurityConfiguration {
                         authorize.requestMatchers(HttpMethod.GET, "/", "/index.html", "/login", "/app",
                                 "/app/tickets", "/app/tickets/new", "/app/tickets/{id:[0-9]+}",
                                 "/assets/**", "/branding/**", "/site.webmanifest").permitAll();
+                    }
+                    authorize.requestMatchers(HttpMethod.GET, "/api/demo").permitAll();
+                    if (environment.matchesProfiles("demo")) {
+                        authorize.requestMatchers(HttpMethod.POST, "/api/demo/start").permitAll()
+                                .requestMatchers(HttpMethod.POST, "/api/demo/requester", "/api/demo/agent").authenticated();
                     }
                     authorize.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health/live", "/api/health/ready").permitAll()

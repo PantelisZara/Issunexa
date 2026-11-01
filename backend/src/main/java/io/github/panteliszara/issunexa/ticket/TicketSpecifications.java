@@ -21,6 +21,10 @@ public final class TicketSpecifications {
         return (root, query, builder) -> builder.equal(root.get("requester").get("id"), requesterId);
     }
 
+    public static Specification<Ticket> inWorkspace(Long workspaceId) {
+        return (root, query, builder) -> builder.equal(root.get("requester").get("demoWorkspaceId"), workspaceId);
+    }
+
     public static Specification<Ticket> hasStatus(TicketStatus status) {
         return (root, query, builder) -> builder.equal(root.get("status"), status);
     }

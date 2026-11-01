@@ -113,6 +113,15 @@ class AuthenticationIntegrationTests {
         userAccountService.createUser(EMAIL, "Alice", PASSWORD, UserRole.REQUESTER);
     }
 
+    @Test
+    void demoDiscoveryOutsideDemoModeIsDisabledWithoutAllocatingASession() throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/demo"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.active").value(false)).andExpect(jsonPath("$.expiresAt").isEmpty())
+                .andExpect(header().string("Cache-Control", "no-store")).andReturn();
+        assertThat(result.getRequest().getSession(false)).isNull();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"/api/auth/login;attempt=", "/api;attempt=%s/auth/login", "/api/auth;attempt=%s/login"})
     void productionFirewallRejectsMatrixLoginVariantsBeforeAuthentication(String path) throws Exception {

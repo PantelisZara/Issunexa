@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.ticket.comment;
 
+import io.github.panteliszara.issunexa.demo.DemoWorkspaceAccess;
 import io.github.panteliszara.issunexa.ticket.Ticket;
 import io.github.panteliszara.issunexa.ticket.TicketCategory;
 import io.github.panteliszara.issunexa.ticket.TicketNotFoundException;
@@ -43,6 +44,9 @@ class TicketCommentServiceTests {
     private UserAccountRepository userAccountRepository;
     @Mock
     private TicketService ticketService;
+    @Mock
+    private DemoWorkspaceAccess demo;
+
     @InjectMocks
     private TicketCommentService service;
 

@@ -62,16 +62,21 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
                AND NOT (c.relkind = 'r' AND c.relname IN
-                   ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'flyway_schema_history'))
+                   ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'demo_workspaces', 'flyway_schema_history'))
                AND NOT (c.relkind = 'S' AND EXISTS (
                    SELECT 1 FROM pg_depend d JOIN pg_class t ON t.oid = d.refobjid
                    JOIN pg_namespace tn ON tn.oid = t.relnamespace
                    WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
                      AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
                      AND tn.nspname = 'public'
-                     AND t.relname IN ('users', 'tickets', 'ticket_comments', 'ticket_history_entries'))))
+                     AND t.relname IN ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'demo_workspaces'))))
        OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                  WHERE n.nspname = 'public') THEN
+                  WHERE n.nspname = 'public' AND NOT (p.proname = 'expire_demo_workspaces' AND p.pronargs = 0 AND p.prorettype = 'integer'::regtype
+                    AND p.prokind = 'f' AND p.prosecdef AND p.provolatile = 'v'
+                    AND p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql')
+                    AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                    AND p.proowner IN (database_owner, (SELECT oid FROM pg_roles WHERE rolname = current_user),
+                        coalesce((SELECT oid FROM pg_roles WHERE rolname = migration_role), 0::oid)))) THEN
         RAISE EXCEPTION 'Unexpected objects in public schema; review a custom privilege upgrade manually';
     END IF;
     IF EXISTS (SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner
@@ -86,6 +91,30 @@ BEGIN
         RAISE EXCEPTION 'Unexpected existing schema/table owner; review ownership before upgrading';
     END IF;
 
+    IF EXISTS (SELECT 1 FROM pg_attribute attribute JOIN pg_class column_table ON column_table.oid = attribute.attrelid,
+                         LATERAL aclexplode(attribute.attacl) grant_entry
+               WHERE column_table.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+                 AND NOT (column_table.relkind = 'r' AND column_table.relname = 'tickets'
+                     AND attribute.attname IN ('title', 'description', 'status', 'priority', 'assignee_id', 'version', 'updated_at')
+                     AND grant_entry.grantee IS NOT DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role)
+                     AND grant_entry.privilege_type = 'UPDATE' AND NOT grant_entry.is_grantable)) THEN
+        RAISE EXCEPTION 'Unexpected application column grants';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+               WHERE n.nspname = 'public' AND (NOT (p.proname = 'expire_demo_workspaces' AND p.pronargs = 0 AND p.prorettype = 'integer'::regtype
+                    AND p.prokind = 'f' AND p.prosecdef AND p.provolatile = 'v'
+                    AND p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql')
+                    AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[])
+                   OR p.proowner NOT IN (database_owner, (SELECT oid FROM pg_roles WHERE rolname = current_user),
+                        coalesce((SELECT oid FROM pg_roles WHERE rolname = migration_role), 0::oid))))
+       OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace,
+                         LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                  WHERE n.nspname = 'public' AND a.grantee <> p.proowner
+                    AND (a.grantee IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role)
+                         OR a.privilege_type <> 'EXECUTE' OR a.is_grantable)) THEN
+        RAISE EXCEPTION 'Unexpected demo routine ownership, shape or grants';
+    END IF;
     FOREACH role_name IN ARRAY ARRAY[migration_role, runtime_role] LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
             EXECUTE format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', role_name);
@@ -115,6 +144,9 @@ BEGIN
         EXECUTE format('ALTER TABLE public.%I OWNER TO %I', relation.relname, migration_role);
         EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, %I', relation.relname, runtime_role);
     END LOOP;
+    IF to_regprocedure('public.expire_demo_workspaces()') IS NOT NULL THEN
+        EXECUTE format('ALTER FUNCTION public.expire_demo_workspaces() OWNER TO %I', migration_role);
+    END IF;
 END
 $bootstrap$;
 -- Reuse Flyway's grant policy in the same transaction, including on repeat runs.

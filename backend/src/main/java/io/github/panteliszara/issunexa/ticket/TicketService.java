@@ -1,5 +1,6 @@
 package io.github.panteliszara.issunexa.ticket;
 
+import io.github.panteliszara.issunexa.demo.DemoWorkspaceAccess;
 import io.github.panteliszara.issunexa.ticket.history.TicketHistoryEntry;
 import io.github.panteliszara.issunexa.ticket.history.TicketHistoryRepository;
 import io.github.panteliszara.issunexa.user.UserAccount;
@@ -18,12 +19,14 @@ import java.util.Optional;
 @Service
 public class TicketService {
 
+    private final DemoWorkspaceAccess demo;
     private final TicketRepository ticketRepository;
     private final UserAccountRepository userAccountRepository;
     private final TicketHistoryRepository ticketHistoryRepository;
 
     public TicketService(TicketRepository ticketRepository, UserAccountRepository userAccountRepository,
-            TicketHistoryRepository ticketHistoryRepository) {
+            TicketHistoryRepository ticketHistoryRepository, DemoWorkspaceAccess demo) {
+        this.demo = demo;
         this.ticketRepository = ticketRepository;
         this.userAccountRepository = userAccountRepository;
         this.ticketHistoryRepository = ticketHistoryRepository;
@@ -33,6 +36,7 @@ public class TicketService {
     public Ticket createTicket(String title, String description, TicketPriority priority, TicketCategory category,
             String requesterEmail) {
         UserAccount requester = resolveCurrentAccount(requesterEmail);
+        demo.beforeTicket(requester);
         Ticket ticket = ticketRepository.save(new Ticket(title, description, TicketStatus.OPEN, priority, category, requester));
         ticketHistoryRepository.save(TicketHistoryEntry.ticketCreated(ticket, requester));
         return ticket;
@@ -44,7 +48,7 @@ public class TicketService {
         Optional<Ticket> ticket = switch (actor.getRole()) {
             case REQUESTER -> ticketRepository.findOne(TicketSpecifications.hasId(id)
                     .and(TicketSpecifications.requestedBy(actor.getId())));
-            case AGENT, ADMIN -> ticketRepository.findById(id);
+            case AGENT, ADMIN -> visibleStaffTicket(id, actor);
         };
         return ticket.orElseThrow(() -> new TicketNotFoundException(id));
     }
@@ -53,8 +57,9 @@ public class TicketService {
     @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
     public Ticket claimTicket(Long ticketId, String actorEmail) {
         UserAccount actor = resolveStaffAccount(actorEmail);
-        Ticket ticket = ticketRepository.findById(ticketId)
+        Ticket ticket = visibleStaffTicket(ticketId, actor)
                 .orElseThrow(() -> new TicketNotFoundException(ticketId));
+        demo.beforeHistory(actor);
         ticket.claim(actor);
         ticketHistoryRepository.save(TicketHistoryEntry.assigneeClaimed(ticket, actor, ticket.getAssignee()));
         return ticket;
@@ -64,8 +69,9 @@ public class TicketService {
     @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
     public Ticket changeStatus(Long id, TicketStatus targetStatus, String actorEmail) {
         UserAccount actor = resolveStaffAccount(actorEmail);
-        Ticket ticket = ticketRepository.findById(id)
+        Ticket ticket = visibleStaffTicket(id, actor)
                 .orElseThrow(() -> new TicketNotFoundException(id));
+        demo.beforeHistory(actor);
         TicketStatus previousStatus = ticket.getStatus();
         ticket.changeStatus(targetStatus);
         ticketHistoryRepository.save(TicketHistoryEntry.statusChanged(ticket, actor, previousStatus, ticket.getStatus()));
@@ -85,6 +91,9 @@ public class TicketService {
             case REQUESTER -> TicketSpecifications.requestedBy(actor.getId());
             case AGENT, ADMIN -> Specification.unrestricted();
         };
+        if (actor.getDemoWorkspaceId() != null) {
+            specification = specification.and(TicketSpecifications.inWorkspace(actor.getDemoWorkspaceId()));
+        }
         if (status != null) {
             specification = specification.and(TicketSpecifications.hasStatus(status));
         }
@@ -100,6 +109,12 @@ public class TicketService {
         return ticketRepository.findAll(specification, pageRequest);
     }
 
+    private Optional<Ticket> visibleStaffTicket(Long id, UserAccount actor) {
+        return actor.getDemoWorkspaceId() == null ? ticketRepository.findById(id)
+                : ticketRepository.findOne(TicketSpecifications.hasId(id)
+                        .and(TicketSpecifications.inWorkspace(actor.getDemoWorkspaceId())));
+    }
+
     private UserAccount resolveStaffAccount(String email) {
         UserAccount actor = resolveCurrentAccount(email);
         // Session authorities reflect login time; the persisted role may have been revoked since then.
@@ -110,8 +125,10 @@ public class TicketService {
     }
 
     private UserAccount resolveCurrentAccount(String email) {
-        return userAccountRepository.findByEmail(UserAccount.normalizeEmail(email))
+        UserAccount actor = userAccountRepository.findByEmail(UserAccount.normalizeEmail(email))
                 .orElseThrow(() -> new IllegalStateException("Authenticated user account could not be resolved."));
+        demo.validate(actor);
+        return actor;
     }
 
 }

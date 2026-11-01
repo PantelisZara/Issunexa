@@ -127,7 +127,12 @@ BEGIN
                   WHERE r.rolname = runtime_role OR (r.rolname = migration_role AND c.relnamespace <> schema_id
                         AND n.nspname <> 'pg_toast'))
        OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
-                  WHERE r.rolname IN (migration_role, runtime_role)) THEN
+                  WHERE r.rolname = runtime_role OR (r.rolname = migration_role AND NOT (
+                    p.pronamespace = schema_id AND p.proname = 'expire_demo_workspaces'
+                    AND p.pronargs = 0 AND p.prorettype = 'integer'::regtype AND p.prokind = 'f'
+                    AND p.prosecdef AND p.provolatile = 'v'
+                    AND p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql')
+                    AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]))) THEN
         RAISE EXCEPTION 'Application roles own unexpected databases, schemas or objects';
     END IF;
     IF EXISTS (SELECT 1 FROM pg_shdepend d JOIN pg_roles r ON r.oid = d.refobjid
@@ -151,24 +156,33 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace = schema_id AND
                (c.relowner <> (SELECT oid FROM pg_roles WHERE rolname = migration_role)
                 OR NOT ((c.relkind = 'r' AND c.relname IN
-                    ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'flyway_schema_history'))
+                    ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'demo_workspaces', 'flyway_schema_history'))
                    OR (c.relkind = 'S' AND EXISTS (
                        SELECT 1 FROM pg_depend d JOIN pg_class t ON t.oid = d.refobjid
                        WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
                          AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
                          AND t.relnamespace = schema_id AND t.relname IN
-                             ('users', 'tickets', 'ticket_comments', 'ticket_history_entries')))
+                             ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'demo_workspaces')))
                    OR (c.relkind = 'i' AND c.relname IN ('pk_users', 'uk_users_email', 'pk_tickets',
                        'idx_tickets_requester_id', 'pk_ticket_comments', 'idx_ticket_comments_ticket_created_id',
                        'pk_ticket_history_entries', 'idx_ticket_history_ticket_created_id',
-                       'flyway_schema_history_pk', 'flyway_schema_history_s_idx')))))
-       OR EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = schema_id)
+                       'pk_demo_workspaces', 'uk_users_demo_workspace_role', 'flyway_schema_history_pk', 'flyway_schema_history_s_idx')))))
+       OR EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = schema_id AND NOT (p.proname = 'expire_demo_workspaces' AND p.pronargs = 0 AND p.prorettype = 'integer'::regtype
+                    AND p.prokind = 'f' AND p.prosecdef AND p.provolatile = 'v'
+                    AND p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql')
+                    AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                    AND p.proowner = (SELECT oid FROM pg_roles WHERE rolname = migration_role)))
        OR EXISTS (SELECT 1 FROM pg_type t WHERE t.typnamespace = schema_id AND t.typrelid = 0 AND t.typelem = 0) THEN
         RAISE EXCEPTION 'Unexpected objects or owners in the application schema';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
-               WHERE c.relnamespace = schema_id AND a.attacl IS NOT NULL)
+    IF EXISTS (SELECT 1 FROM pg_attribute attribute JOIN pg_class column_table ON column_table.oid = attribute.attrelid,
+                         LATERAL aclexplode(attribute.attacl) grant_entry
+               WHERE column_table.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = application_schema)
+                 AND NOT (column_table.relkind = 'r' AND column_table.relname = 'tickets'
+                     AND attribute.attname IN ('title', 'description', 'status', 'priority', 'assignee_id', 'version', 'updated_at')
+                     AND grant_entry.grantee IS NOT DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role)
+                     AND grant_entry.privilege_type = 'UPDATE' AND NOT grant_entry.is_grantable))
        OR EXISTS (SELECT 1 FROM pg_class c, LATERAL aclexplode(c.relacl) a JOIN pg_roles r ON r.oid = a.grantee
                WHERE r.rolname IN (migration_role, runtime_role) AND c.relnamespace IS DISTINCT FROM schema_id)
        OR EXISTS (SELECT 1 FROM pg_attribute c JOIN pg_class t ON t.oid = c.attrelid,
@@ -189,18 +203,32 @@ BEGIN
 
     IF EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(n.nspacl) a
                WHERE n.oid = schema_id AND a.grantee <> (SELECT oid FROM pg_roles WHERE rolname = migration_role)
-                 AND (a.grantee <> (SELECT oid FROM pg_roles WHERE rolname = runtime_role) OR a.privilege_type <> 'USAGE' OR a.is_grantable))
+                 AND (a.grantee IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role) OR a.privilege_type <> 'USAGE' OR a.is_grantable))
        OR EXISTS (SELECT 1 FROM pg_class c, LATERAL aclexplode(c.relacl) a
                   WHERE c.relnamespace = schema_id AND a.grantee <> (SELECT oid FROM pg_roles WHERE rolname = migration_role)
-                    AND (a.grantee <> (SELECT oid FROM pg_roles WHERE rolname = runtime_role) OR a.is_grantable OR NOT (
+                    AND (a.grantee IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role) OR a.is_grantable OR NOT (
                         (c.relkind = 'S' AND a.privilege_type IN ('USAGE', 'SELECT'))
                         OR (c.relkind = 'r' AND c.relname IN
-                            ('users', 'tickets', 'ticket_comments', 'ticket_history_entries')
+                            ('users', 'tickets', 'ticket_comments', 'ticket_history_entries', 'demo_workspaces')
                             AND (a.privilege_type IN ('SELECT', 'INSERT')
                                  OR (c.relname = 'tickets' AND a.privilege_type = 'UPDATE'))))))
        OR EXISTS (SELECT 1 FROM pg_type t, LATERAL aclexplode(t.typacl) a
                   WHERE t.typnamespace = schema_id AND a.grantee <> (SELECT oid FROM pg_roles WHERE rolname = migration_role)) THEN
         RAISE EXCEPTION 'Unexpected managed namespace grants; review grantees and privileges manually';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+               WHERE n.nspname = application_schema AND (NOT (p.proname = 'expire_demo_workspaces' AND p.pronargs = 0 AND p.prorettype = 'integer'::regtype
+                    AND p.prokind = 'f' AND p.prosecdef AND p.provolatile = 'v'
+                    AND p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql')
+                    AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[])
+                   OR p.proowner <> (SELECT oid FROM pg_roles WHERE rolname = migration_role)))
+       OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace,
+                         LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                  WHERE n.nspname = application_schema AND a.grantee <> p.proowner
+                    AND (a.grantee IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = runtime_role)
+                         OR a.privilege_type <> 'EXECUTE' OR a.is_grantable)) THEN
+        RAISE EXCEPTION 'Unexpected demo routine ownership, shape or grants';
     END IF;
 
     -- All preflight checks precede persistent changes; any later error rolls back too.
