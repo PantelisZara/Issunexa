@@ -6,6 +6,8 @@ import { App } from '../app/App';
 import { ticket, ticketPage } from '../test/ticketFixtures';
 import { ticketCategories, ticketPriorities } from './ticketTypes';
 
+vi.mock('../auth/demoApi', () => ({ getDemo: async () => ({ enabled: false, active: false, expiresAt: null }) }));
+
 const fetchMock = vi.fn<typeof fetch>();
 const csrfMock = vi.fn<() => Promise<Response>>();
 const sessionMock = vi.fn<() => Promise<Response>>();
@@ -425,4 +427,13 @@ describe('Ticket route integration', () => {
         expect(detailMock).not.toHaveBeenCalled();
         expect(createMock).not.toHaveBeenCalled();
     });
+});
+
+it('explains demo ticket capacity without automatically repeating creation', async () => {
+    createMock.mockResolvedValue(problem(429));
+    renderAt();
+    const user = await fillForm();
+    await user.click(screen.getByRole('button', { name: 'Create ticket' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('ticket or history limit');
+    expect(createMock).toHaveBeenCalledTimes(1);
 });

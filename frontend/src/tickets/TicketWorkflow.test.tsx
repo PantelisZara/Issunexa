@@ -6,6 +6,8 @@ import { App } from '../app/App';
 import { ticket, ticketPage } from '../test/ticketFixtures';
 import { ticketLabels, type Ticket } from './ticketTypes';
 
+vi.mock('../auth/demoApi', () => ({ getDemo: async () => ({ enabled: false, active: false, expiresAt: null }) }));
+
 const fetchMock = vi.fn<typeof fetch>();
 const detailMock = vi.fn<(path: string, options?: RequestInit) => Promise<Response>>();
 const mutationMock = vi.fn<(path: string, options?: RequestInit) => Promise<Response>>();
@@ -300,4 +302,12 @@ describe('Ticket workflow recovery', () => {
         expect(screen.queryByRole('heading', { name: 'Sign in to Issunexa' })).not.toBeInTheDocument();
         expect(screen.queryByText('Alice Agent')).not.toBeInTheDocument();
     });
+});
+
+it('explains demo history capacity without automatically repeating a workflow action', async () => {
+    mutationMock.mockResolvedValue(problem(429));
+    renderDetail(); await loaded();
+    await userEvent.click(screen.getByRole('button', { name: 'Claim ticket' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('history limit');
+    expect(mutationMock).toHaveBeenCalledTimes(1);
 });

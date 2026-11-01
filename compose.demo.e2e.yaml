@@ -1,0 +1,5 @@
+# Only with the disposable runner: never load ordinary account fixtures.
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: public,demo

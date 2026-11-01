@@ -40,6 +40,7 @@ beforeEach(() => {
     localStorage.clear();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', (path: RequestInfo | URL, options?: RequestInit) => {
+        if (path === '/api/demo') return Promise.resolve(Response.json({ enabled: false, active: false, expiresAt: null }));
         if (String(path).startsWith('/api/tickets?')) return Promise.resolve(Response.json(ticketPage()));
         return fetchMock(path, options);
     });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 
 export function AccountPanel() {
-    const { state, pending, logout } = useAuth();
+    const { state, pending, logout, demo } = useAuth();
     const [error, setError] = useState<string | undefined>();
     if (state.status !== 'authenticated') return null;
 
@@ -15,7 +15,7 @@ export function AccountPanel() {
             <button className="secondary-button" type="button" disabled={pending} onClick={() => {
                 setError(undefined);
                 void logout().then(setError);
-            }}>{pending ? 'Signing out…' : 'Sign out'}</button>
+            }}>{pending ? 'Signing out…' : demo?.enabled ? 'End demo' : 'Sign out'}</button>
             {error && <p role="alert" className="error-message">{error}</p>}
         </section>
     );
