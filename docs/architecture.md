@@ -23,10 +23,10 @@ The optional [root Dockerfile](../Dockerfile) also embeds the compiled UI in Jav
 | --- | --- | --- |
 | React client | Routes, session bootstrap, forms, decoded API data and URL-driven Ticket controls | [Frontend](frontend.md) |
 | Nginx | Compiled assets, SPA route fallback and relative API proxying | [Configuration](../frontend/nginx.conf) |
-| Spring Boot backend | Authentication, authorization, validation, Ticket rules and transaction coordination | [Backend](backend.md), [security](security.md) |
+| Spring Boot backend | Authentication, authorization, validation, Ticket rules, demo isolation/lifecycle and transaction coordination | [Backend](backend.md), [security](security.md) |
 | PostgreSQL / Flyway | Durable application data, constraints and versioned schema evolution | [Database](database.md) |
 
-The backend has one [application entry point](../backend/src/main/java/io/github/panteliszara/issunexa/IssunexaApplication.java) and one [Maven build](../backend/pom.xml). Its `auth`, `user`, `ticket`, `ticket.comment`, `ticket.history` and `shared` packages share a Spring application context and database. These are package-level boundaries, not separately deployed business services or enforced module isolation. The Nginx, backend and database containers separate runtime responsibilities; business logic remains in one backend application.
+The backend has one [application entry point](../backend/src/main/java/io/github/panteliszara/issunexa/IssunexaApplication.java) and one [Maven build](../backend/pom.xml). Its `auth`, `user`, `demo`, `ticket`, `ticket.comment`, `ticket.history` and `shared` packages share a Spring application context and database. These are package-level boundaries, not separately deployed business services or enforced module isolation. The ordinary Compose containers separate serving, Java and database responsibilities; the root artifact combines serving and Java in one process. Business logic remains in one backend application. Demo workspaces and quotas are persisted in that same database, with transactional locks around admission/cleanup and workspace quota writes; they introduce no extra service.
 
 ## Build and verification boundaries
 
@@ -36,9 +36,9 @@ Three independent workflows run on pushes/PRs targeting `master` and manual disp
 
 - [Backend CI](../.github/workflows/backend-ci.yml): Maven `verify`, including PostgreSQL integration tests with Testcontainers.
 - [Frontend CI](../.github/workflows/frontend-ci.yml): lint, E2E TypeScript checks, Vitest and production build.
-- [E2E CI](../.github/workflows/e2e-ci.yml): the same `npm run test:e2e` and `npm run test:e2e:artifact` commands used locally from `frontend/`.
+- [E2E CI](../.github/workflows/e2e-ci.yml): the same `npm run test:e2e`, `npm run test:e2e:artifact` and `npm run test:e2e:demo` commands used locally from `frontend/`.
 
-The [E2E runner](../frontend/e2e/run-e2e.sh) builds real application images, creates an isolated database, checks readiness through Nginx and `/api/auth/csrf`, and provisions synthetic accounts only in that database. It removes its invocation's containers, network, volume, temporary credentials and image tags. [Playwright](../frontend/playwright.config.ts) covers desktop Chromium and Pixel 7 Chromium emulation; mobile emulation does not establish physical-device or Safari coverage.
+The [E2E runner](../frontend/e2e/run-e2e.sh) builds real application images, creates an isolated database, checks readiness and `/api/auth/csrf` through the selected serving arrangement, and provisions ordinary synthetic fixtures only for ordinary mode. Demo mode skips those accounts and exercises real visitor admission against its own synthetic-only database. It removes its invocation's containers, network, volume, temporary credentials and image tags. [Playwright](../frontend/playwright.config.ts) covers desktop Chromium and Pixel 7 Chromium emulation; mobile emulation does not establish physical-device or Safari coverage.
 
 ## Accepted decisions and limits
 
@@ -47,5 +47,10 @@ The [E2E runner](../frontend/e2e/run-e2e.sh) builds real application images, cre
 - [ADR 003: PostgreSQL and Flyway](decisions/003-postgresql-flyway.md)
 - [ADR 004: public HTTPS and ingress](decisions/004-public-https-ingress.md)
 - [ADR 005: same-origin Java artifact](decisions/005-single-service-artifact.md)
+- [ADR 006: managed PostgreSQL roles](decisions/006-managed-postgresql.md)
+- [ADR 007: isolated demo workspaces](decisions/007-isolated-demo-workspaces.md)
+- [ADR 008: managed logical recovery](decisions/008-managed-recovery.md)
 
 These ADRs record decisions already embodied in the implementation. Compose defines a local HTTP environment. The artifact has a local 512 MiB container exercise; production deployment, concurrency capacity and independent business-service scaling remain unverified.
+
+Ordinary mode permits staff-wide ticket visibility. The opt-in `public,demo` mode confines both requester and agent to their server-bound visitor workspace, rejects password login and exposes no administrator. See the [demo backend](demo-backend.md), [demo UI](demo-ui.md), [managed provisioning](managed-postgresql.md) and [recovery](managed-recovery.md) contracts. Actual hosted topology remains an [acceptance gate](operations.md#release-and-provider-acceptance).

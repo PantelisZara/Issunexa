@@ -15,7 +15,9 @@ The [Maven Wrapper](../backend/.mvn/wrapper/maven-wrapper.properties) supplies M
 
 - Entity/service unit tests cover workflow invariants and transaction coordination; MVC slices cover binding, validation and response contracts. Ticket MVC slices isolate security filters.
 - Full-context tests exercise actual password verification, the security chain, session-ID/CSRF rotation, logout, ownership and persisted-role checks.
-- PostgreSQL 18.6 Testcontainers tests cover persistence, constraints, V1–V9 migration behavior, database privilege separation, concurrent Ticket updates, comments/history and generated OpenAPI.
+- PostgreSQL 18.6 Testcontainers tests cover persistence, constraints, V1–V10 migration behavior, database privilege separation, concurrent Ticket updates, comments/history and generated OpenAPI.
+- Managed provisioning tests use real TLS PostgreSQL and a non-superuser database owner to verify ordinary SQL migrator/runtime roles, grants, negative privileges, reruns and transactional rollback. Logical recovery tests restore trusted data/history/sequences to a separate empty target with different role names, restart the app and prove new writes plus failure rollback.
+- Demo tests exercise bound requester/agent isolation, expiry before physical deletion, startup rejection of ordinary data, quota concurrency, bounded sessions/admissions and the narrowly granted cleanup routine. Immutable requester columns prevent cleanup from adopting ordinary tickets.
 - Real-server health probes verify database login failure/recovery, session-free minimal responses and database-independent liveness.
 - The public-profile JDBC pool test retires all idle connections and reconnects for persisted application work against PostgreSQL.
 - Login budget tests use an injected clock for recovery/concurrency/bounds; integration tests exercise path/proxy trust and authentication contracts.
@@ -35,7 +37,7 @@ npm test
 npm run build
 ```
 
-[Vitest and Testing Library tests](../frontend/src/) cover auth bootstrap/login/logout, runtime response decoding, URL query state, ticket creation/detail, comments/history, workflow controls and explicit recovery from API failures. These tests use controlled API responses and do not prove backend behavior. `npm test` runs once; `npm run test:watch` is the interactive alternative. The build type-checks before producing static files. E2E sources have a separate TypeScript check.
+[Vitest and Testing Library tests](../frontend/src/) cover auth bootstrap/login/logout, demo metadata/transitions/expiry/quotas and safe recovery without POST replay, runtime response decoding, URL query state, ticket creation/detail, comments/history, workflow controls and explicit recovery from API failures. These tests use controlled API responses and do not prove backend behavior. `npm test` runs once; `npm run test:watch` is the interactive alternative. The build type-checks before producing static files. E2E sources have a separate TypeScript check.
 
 ## Full-stack browser journeys
 
@@ -65,14 +67,24 @@ For a retained trace, use `npm exec -- playwright show-trace` followed by its ac
 
 Run `npm run test:e2e:artifact` from `frontend/` to verify the root Java/React image under a 512 MiB memory limit. It reuses the disposable runner and seven desktop/mobile journeys, then checks compiled assets, known-route refresh, cache/security headers and API/missing-asset boundaries in two artifact-specific tests. The Nginx throttle tests remain in the original nine-test command. See [artifact verification and limits](single-service-artifact.md) for the localhost Secure-cookie simulation, cgroup v2 requirement and runtime measurements.
 
+## Isolated synthetic demo
+
+Run `npm run test:e2e:demo` from `frontend/` after `npm ci`. It builds the same root artifact with `public,demo`, private per-run credentials and a fresh database, skips ordinary account fixtures and publishes no host ports. The three desktop/mobile tests use four total admissions to remain below the real source budget. They prove independent visitor workflows, cross-workspace read/write denial, role/reload persistence, cookie/CSRF rotation and replay rejection, fixed-action validation and narrow-screen usability. This command cleans up after itself; use the [manual loopback setup](demo-ui.md#explore-the-demo-in-your-browser) for interactive exploration.
+
 ## GitHub Actions
 
 | Workflow | Actual checks |
 | --- | --- |
 | [Backend CI](../.github/workflows/backend-ci.yml) | Java 21, Maven `verify`, including PostgreSQL/Testcontainers tests |
 | [Frontend CI](../.github/workflows/frontend-ci.yml) | Node 24.22.2, `npm ci`, lint, E2E type checks, Vitest and production build |
-| [E2E CI](../.github/workflows/e2e-ci.yml) | Node 24.22.2, install/type checks, Docker compatibility and both local commands: `npm run test:e2e` and `npm run test:e2e:artifact` |
+| [E2E CI](../.github/workflows/e2e-ci.yml) | Node 24.22.2, install/type checks, Docker compatibility and all three local commands: `npm run test:e2e`, `npm run test:e2e:artifact` and `npm run test:e2e:demo` |
 
 All three run independently on pushes to `master`, PRs targeting `master` and manual dispatch. E2E failures upload available HTML reports, traces and screenshots as `playwright-e2e-failure`, retained seven days. Docker image construction skips tests; a successful image build does not imply the suites passed.
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) requires relevant local verification and green CI before reviewed merge. These contribution conventions do not themselves configure branch protection. Use this repository's **Actions** tab for actual workflow results; no static passing badge is used as evidence.
+
+## Verified snapshot
+
+On 2026-11-01, the source at [51d1b08](https://github.com/PantelisZara/Issunexa/commit/51d1b08edd07f86e40e55794800820d5ac5b83a9) passed local lint/E2E types, 424 Vitest tests and production build, plus 9 Nginx, 7 ordinary artifact journeys, 2 artifact contracts and 3 demo browser tests. The unchanged backend had 675 passing Maven tests. [PR #20](https://github.com/PantelisZara/Issunexa/pull/20) records hosted verification for that snapshot; use its actual checks and subsequent master runs rather than treating these counts as evidence for future changes.
+
+Official in-app Browser QA additionally exercised requester create/comment, agent claim/status/response, requester reload and end/denied prior access. A 390 px viewport showed no horizontal overflow and console errors were absent during that smoke. [Capture provenance](screenshots/README.md) describes the genuine local screenshots. This is representative local evidence, not a load test, browser-matrix guarantee or external HTTPS acceptance.

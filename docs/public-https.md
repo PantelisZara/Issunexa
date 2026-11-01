@@ -1,6 +1,6 @@
 # Public HTTPS preparation
 
-This is an application security contract, **not a deployment completion claim**. The normal Compose stack remains local HTTP. Do not expose it publicly or activate a hosted demo before isolated synthetic workspaces, quotas, lifecycle cleanup, database provisioning and resource limits are implemented and verified. Creating accounts or exposing a new service also requires explicit maintainer authorization.
+This is an application security contract, **not a deployment completion claim**. The normal Compose stack remains local HTTP. Isolated synthetic workspaces, quotas, activity cleanup, managed provisioning and resource limits now have local executable coverage. Actual provider/HTTPS acceptance remains unverified; follow the [release gates](operations.md#release-and-provider-acceptance) before exposure. Creating accounts or exposing a new service also requires explicit maintainer authorization.
 
 ## One external origin
 
@@ -25,7 +25,7 @@ The ingress must terminate TLS, redirect public HTTP to HTTPS and prevent direct
 
 Global forwarding remains NONE; effective overrides that weaken forwarding/session settings or re-enable the API explorer fail startup. X-Forwarded-For, Forwarded, X-Forwarded-Host, X-Forwarded-Proto and X-Real-IP cannot change the public-mode external metadata. In Render mode only CF-Connecting-IP is considered for the login source, subject to a single valid literal; missing, duplicate, list, hostname, port, scoped or oversized values fall back to the actual peer.
 
-OpenAPI/Swagger is disabled in this profile. No management endpoint is added. Throttles and sessions remain process-local; restart logs out visitors and multiple independent backend instances are not supported by this contract. NAT and Cloudflare Workers can share source identities.
+OpenAPI/Swagger is disabled in this profile. Only the two minimal GET-only [liveness/readiness probes](operations.md) are anonymously available; no general management interface is exposed. Throttles and sessions remain process-local; restart logs out visitors and multiple independent backend instances are not supported by this contract. NAT and Cloudflare Workers can share source identities.
 
 ## Verification boundary
 

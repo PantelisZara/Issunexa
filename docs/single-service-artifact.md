@@ -1,6 +1,6 @@
 # Single-service artifact
 
-The root [Dockerfile](../Dockerfile) packages the existing React UI and Java API in one Java 21 process. This prepares a same-origin deployment; it does not establish a safe public demo or a working hosted service. The normal [Nginx/Compose workflow](local-development.md) remains available.
+The root [Dockerfile](../Dockerfile) packages the existing React UI and Java API in one Java 21 process. This prepares a same-origin deployment; isolated synthetic demo behavior is implemented and tested locally, while a working hosted service remains unverified. The normal [Nginx/Compose workflow](local-development.md) remains available.
 
 ## Build and runtime contract
 
@@ -12,7 +12,7 @@ docker build -t issunexa:local .
 
 Node 24.22.2 compiles the frontend; Maven packages the backend and compiled assets. Image construction skips tests. The final layered JRE image runs as UID/GID 10001 and contains no Node, npm, Maven, Java compiler or frontend source. The allowlisted [.dockerignore](../.dockerignore) excludes environment files, Git metadata, local dependencies, tests and original design files. Supply credentials at runtime; never add them to build arguments or the image.
 
-Use the [public HTTPS contract](public-https.md), including `SPRING_PROFILES_ACTIVE=public`, a canonical `ISSUNEXA_PUBLIC_ORIGIN` and an explicitly selected ingress. The platform must enforce HTTPS and prevent direct access around that ingress. Java itself listens internally over HTTP. `PORT` selects its listener (default 8080). Configure `ISSUNEXA_DB_URL`, separate runtime and Flyway credentials, and provision database privileges before startup; the image does not bootstrap administrator privileges or create accounts. [Database configuration](database.md) describes the existing local bootstrap; managed provisioning remains separate work.
+Use the [public HTTPS contract](public-https.md), including `SPRING_PROFILES_ACTIVE=public`, a canonical `ISSUNEXA_PUBLIC_ORIGIN` and an explicitly selected ingress. The platform must enforce HTTPS and prevent direct access around that ingress. Java itself listens internally over HTTP. `PORT` selects its listener (default 8080). Configure `ISSUNEXA_DB_URL`, separate runtime and Flyway credentials, and provision database privileges before startup; the image does not bootstrap administrator privileges or create accounts. [Database configuration](database.md) describes local bootstrap; the separate [managed provisioner](managed-postgresql.md) supports a non-superuser dedicated database owner and ordinary SQL application roles. For a synthetic-only demo, activate `public,demo` only against the dedicated data boundary described in [demo-backend.md](demo-backend.md).
 
 Known browser routes forward to the compiled index. Fingerprinted `/assets/` files use a one-year immutable cache; the index remains uncached. Missing assets, unknown routes and API errors do not turn into successful HTML. API authorization, CSRF and session handling remain enforced by the backend. Swagger/OpenAPI stay disabled in this profile.
 
@@ -29,13 +29,14 @@ After `npm ci`, run from `frontend/` with Node 24, Docker/Compose/Buildx and a L
 ```sh
 npm run test:e2e
 npm run test:e2e:artifact
+npm run test:e2e:demo
 ```
 
 The first command preserves all nine Nginx journeys, including its two topology-specific throttling tests. Artifact mode reuses the same disposable runner, generated credentials, strict database bootstrap and synthetic fixtures. It builds the root image, starts Java at port 9090 under a 512 MiB memory limit with no additional swap, runs seven desktop/mobile journeys, then two artifact contract tests. It verifies UID 10001, absence of build tools, the effective memory limit and OOM state, and prints the process cgroup's peak memory. Each invocation removes only its own containers, network, database volume, temporary credentials and image tags. Build cache/base images remain.
 
 No ports are published. The browser runner shares Java's network namespace so its localhost reaches the actual listener. Chromium's Secure-cookie exception for localhost permits this local HTTP simulation. This checks application behavior; it does not verify public TLS, DNS, platform proxy behavior or public cookie delivery. The separate backend security suite covers cookie flags, hostile forwarding metadata, CSRF, session rotation and logout.
 
-The required E2E CI job executes both commands. [Testing details](testing.md) cover diagnostics and the other required suites. An official in-app Browser smoke test also exercised requester login/create/comment/reload/logout and agent claim/status/logout against a locally built artifact using synthetic data; no console errors were observed during that smoke test.
+The third command separately exercises isolated synthetic demo admission and desktop/mobile workflows without ordinary account fixtures. The required E2E CI job executes all three commands. [Testing details](testing.md) cover diagnostics and the other required suites. An official in-app Browser smoke test also exercised requester login/create/comment/reload/logout and agent claim/status/logout against a locally built artifact using synthetic data; no console errors were observed during that smoke test.
 
 ## Observed local result
 
@@ -45,6 +46,12 @@ On 2026-10-31, the portable artifact command completed seven application journey
 
 The local 512 MiB exercise covers startup, migrations and representative single-browser activity. It does not establish concurrency capacity, provider CPU constraints, cold database wake-up, provider build compatibility, availability or uptime. Sessions and login budgets are in process memory and reset on restart. No multi-instance session storage is provided.
 
-Startup fails when migration or database authentication fails; a static page response alone is not database readiness. The E2E runner checks database readiness and the application CSRF contract after startup, then exercises persisted workflows. The [operational probes](operations.md) distinguish process liveness from on-demand database readiness. Managed provisioning, isolated demo workspaces/quotas/expiration and verified backup/restore remain separate prerequisites to public deployment. No cloud account, hosted service or billable resource is created by this change.
+Startup fails when migration or database authentication fails; a static page response alone is not database readiness. The E2E runner checks database readiness and the application CSRF contract after startup, then exercises persisted workflows. The [operational probes](operations.md) distinguish process liveness from on-demand database readiness. Managed provisioning, isolated demo workspaces/quotas/expiration and trusted fresh-target logical recovery have local executable coverage. Actual provider roles/TLS, public-edge behavior, idle quotas and off-host backup storage/retention remain [release prerequisites](operations.md#release-and-provider-acceptance). No cloud account, hosted service or billable resource is created by this change.
 
 [ADR 005](decisions/005-single-service-artifact.md) records alternatives and rollback.
+
+## CPU-limited local startup observation
+
+On 2026-11-01, a fresh local invocation of the same compiled UI/backend source used an effective Docker limit of **0.1 CPU and 536,870,912 bytes**. After Compose returned from starting the services, database readiness first succeeded in **238.4 seconds**. Java reported application startup in 223.6 seconds; observed peak cgroup memory was 269,926,400 bytes, UID 10001, with no OOM kill. PostgreSQL was local and not CPU-limited. This timed check excludes image builds and the earlier provisioning stage; it exercises startup/readiness only, with no browser or concurrency benchmark under the CPU quota.
+
+The earlier unthrottled observations above remain historical. This slower result is a material cold-start limitation for the candidate free hosting shape, not a prediction or guarantee of Render startup. Actual platform scheduling, database wake and network latency remain unverified. Do not use paid compute or artificial keepalives to conceal the delay.
