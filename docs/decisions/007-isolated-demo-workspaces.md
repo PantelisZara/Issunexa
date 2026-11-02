@@ -1,6 +1,6 @@
 # ADR 007: Expiring isolated synthetic demo workspaces
 
-Status: accepted for the backend foundation; public exposure remains unverified.
+Status: accepted and implemented; public synthetic-demo observations and remaining lifecycle limits are recorded in [dated hosted acceptance](../testing.md#hosted-demo-acceptance).
 
 ## Problem and current behavior
 

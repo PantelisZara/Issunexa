@@ -1,6 +1,6 @@
 # ADR 004: explicit public HTTPS and ingress metadata
 
-Status: accepted for application preparation; public deployment and provider-edge verification remain pending.
+Status: accepted and implemented; actual public HTTPS/ingress observations are recorded in [dated hosted acceptance](../testing.md#hosted-demo-acceptance).
 
 ## Problem and current behavior
 

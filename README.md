@@ -10,9 +10,11 @@
 
 Issunexa is a single-maintainer portfolio help-desk application: requesters submit and track support tickets, while agents claim work, move tickets through a defined lifecycle and discuss progress with requesters.
 
-The repository contains a working React interface, a Spring Boot REST API and PostgreSQL persistence. It demonstrates ownership-aware queries, transactional workflow history, session authentication and tests against the real application stack. The isolated synthetic demo is verified locally; no public live deployment, production usage or adoption is claimed.
+The repository contains a working React interface, a Spring Boot REST API and PostgreSQL persistence. It demonstrates ownership-aware queries, transactional workflow history, session authentication and tests against the real application stack. The public synthetic demo runs the same Java/React artifact with isolated visitor workspaces; this is a portfolio demonstration, with no production usage or adoption claimed.
 
-[Synthetic demo walkthrough](docs/demo-ui.md) · [Run locally](#run-locally) · [Architecture](docs/architecture.md) · [API guide](docs/api.md) · [Security](docs/security.md) · [Testing](docs/testing.md) · [Contributing](CONTRIBUTING.md)
+[Live synthetic demo](https://issunexa-demo.onrender.com) · [Demo walkthrough](docs/demo-ui.md) · [Run locally](#run-locally) · [Architecture](docs/architecture.md) · [API guide](docs/api.md) · [Security](docs/security.md) · [Testing](docs/testing.md) · [Contributing](CONTRIBUTING.md)
+
+Use invented data only in the live demo. Free hosting sleeps when idle, so the first load can take over a minute. Demo access is temporary; see [hosted checks and limitations](docs/testing.md#hosted-demo-acceptance).
 
 ## What works today
 
@@ -20,7 +22,7 @@ The repository contains a working React interface, a Spring Boot REST API and Po
 - **Staff workflow:** in ordinary mode, AGENT and ADMIN can see all tickets, claim an unassigned ticket for themselves and change its status. The lifecycle is `OPEN → IN_PROGRESS → RESOLVED → CLOSED`, with reopening from `RESOLVED` to `IN_PROGRESS`.
 - **Conversation and history:** paginated, append-only comments and structured creation/claim/status events. Ticket changes and their history entries commit together; competing updates return `409` for explicit refresh and retry.
 - **Browser navigation:** login/logout, session restoration after reload, protected routes, URL-based list queries and return navigation. The branded layout adapts to narrow screens.
-- **Isolated synthetic demo:** no credentials or registration; each visitor gets a server-bound requester/agent pair, their own tickets, a 30-minute absolute lifetime and fixed resource quotas. Demo agents cannot access another visitor's workspace. [Try the local walkthrough](docs/demo-ui.md).
+- **Isolated synthetic demo:** no credentials or registration; each visitor gets a server-bound requester/agent pair, their own tickets, a 30-minute absolute lifetime and fixed resource quotas. Demo agents cannot access another visitor's workspace. [Try the walkthrough](docs/demo-ui.md#recruiter-walkthrough).
 
 Authorization, filtering, ordering, pagination and totals are owned by the backend. ADMIN currently has the same ticket workflow capabilities as AGENT; it does not have a user-administration interface.
 
@@ -109,7 +111,7 @@ npm run dev
 
 Vite normally serves `http://localhost:5173` and proxies `/api` to the backend. [The setup guide](docs/local-development.md) covers readiness, port changes, host-run Java, account provisioning and cleanup; [database docs](docs/database.md) cover existing-volume upgrades.
 
-The [single-service artifact](docs/single-service-artifact.md) additionally packages the compiled UI and API in one Java image for a future same-origin HTTPS deployment. It is verified locally under a 512 MiB limit. [Managed SQL provisioning](docs/managed-postgresql.md), [isolated demo workspaces](docs/demo-backend.md) and [fresh-target logical recovery](docs/managed-recovery.md) are implemented and tested locally. A [manual loopback demo](docs/demo-ui.md#explore-the-demo-in-your-browser) needs no host Java or Node; the automated demo suite requires Node 24.22.2. Actual provider/HTTPS acceptance remains a [separate release gate](docs/operations.md#release-and-provider-acceptance).
+The [single-service artifact](docs/single-service-artifact.md) packages the compiled UI and API in one Java image and serves the live HTTPS demo on Render Free with Neon PostgreSQL. Local artifact verification uses a 512 MiB limit. [Managed SQL provisioning](docs/managed-postgresql.md), [isolated demo workspaces](docs/demo-backend.md) and [fresh-target logical recovery](docs/managed-recovery.md) also have local verification; [hosted acceptance](docs/testing.md#hosted-demo-acceptance) records the separate provider checks. A [manual loopback demo](docs/demo-ui.md#explore-the-demo-in-your-browser) needs no host Java or Node; the automated demo suite requires Node 24.22.2.
 
 ## Testing and CI
 
@@ -135,6 +137,6 @@ E2E uses generated credentials, synthetic accounts and an isolated Compose datab
 | [compose.yaml](compose.yaml) / [compose.e2e.yaml](compose.e2e.yaml) | Local stack and disposable browser-test overlay |
 | [.github/](.github/) | CI workflows and issue/PR templates |
 
-Current scope excludes public registration/password recovery, user administration, attachments, notifications and offline behavior. Comments/history have no edit/delete endpoints; history before migration V8 is not backfilled. Actual public HTTPS/provider acceptance and private off-host backup storage/retention remain unverified; the local logical restore procedure is implemented. Multi-instance session/throttle storage is outside the current single-process design. Free-tier cold starts, quotas and suspension risks are documented in the [release guide](docs/operations.md#release-and-provider-acceptance). Use this repository's **Issues** tab for planned work; no delivery dates are promised.
+Current scope excludes public registration/password recovery, user administration, attachments, notifications and offline behavior. Comments/history have no edit/delete endpoints; history before migration V8 is not backfilled. Private off-host backup storage and archive retention are not established; a local archive and fresh-target managed restore were verified. See [hosted acceptance](docs/testing.md#hosted-demo-acceptance) for completed checks and operating limitations. Multi-instance session/throttle storage is outside the current single-process design. Free-tier cold starts, quotas and suspension risks are documented in the [release guide](docs/operations.md#release-and-provider-acceptance). Use this repository's **Issues** tab for planned work; no delivery dates are promised.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the Issue → branch → PR → CI → review → merge workflow.

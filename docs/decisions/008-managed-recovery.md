@@ -1,6 +1,6 @@
 # ADR 008: Fresh-target managed logical recovery
 
-Status: accepted for implementation; actual provider recovery remains unverified.
+Status: accepted and implemented; actual managed-provider backup/fresh-target restore observations are recorded in [dated hosted acceptance](../testing.md#hosted-demo-acceptance). Off-host storage and archive retention remain absent.
 
 ## Problem and current behavior
 
