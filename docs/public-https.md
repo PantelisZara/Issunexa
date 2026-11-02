@@ -1,6 +1,6 @@
 # Public HTTPS preparation
 
-This is an application security contract, **not a deployment completion claim**. The normal Compose stack remains local HTTP. Isolated synthetic workspaces, quotas, activity cleanup, managed provisioning and resource limits now have local executable coverage. Actual provider/HTTPS acceptance remains unverified; follow the [release gates](operations.md#release-and-provider-acceptance) before exposure. Creating accounts or exposing a new service also requires explicit maintainer authorization.
+This is an application security contract, **not a deployment completion claim**. The normal Compose stack remains local HTTP. Isolated synthetic workspaces, quotas, activity cleanup, managed provisioning and resource limits now have local executable coverage. Actual public HTTPS/ingress observations and remaining demo acceptance limits are recorded in [dated hosted acceptance](testing.md#hosted-demo-acceptance); follow the [release gates](operations.md#release-and-provider-acceptance) for future exposure. Creating accounts or exposing a new service also requires explicit maintainer authorization.
 
 ## One external origin
 

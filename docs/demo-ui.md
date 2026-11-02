@@ -1,6 +1,8 @@
-# Local synthetic demo walkthrough
+# Synthetic demo walkthrough
 
 The same compiled React UI discovers demo mode through `GET /api/demo`. Normal mode retains password sign-in. With the `public,demo` Spring profiles, visitors start an isolated synthetic workspace without credentials and use the two fixed requester/agent actions. There is no registration, account selector or public administrator action.
+
+[Open the live synthetic demo](https://issunexa-demo.onrender.com) and follow the [recruiter walkthrough](#recruiter-walkthrough). Use invented data only. The Free service sleeps when idle; a cold start can take over a minute. [Hosted acceptance and limitations](testing.md#hosted-demo-acceptance) are recorded separately from the local tests below.
 
 ## Run and verify locally
 
@@ -34,7 +36,7 @@ The server supplies an absolute 30-minute expiry, displayed as a local date and 
 
 Limits include the seed: 8 tickets, 20 comments and 128 history entries per workspace; 50 retained workspaces, 100 HTTP sessions and admissions of 5/source/minute and 50 globally. Capacity messages require an explicit later retry; there are no background retries. See the [backend contract](demo-backend.md) for bounded cleanup and admission details. Cleanup runs on relevant activity rather than on a background timer, so expired physical rows can remain while idle, including in database backups.
 
-The [verified source snapshot](testing.md#verified-snapshot) records independent review, actual built-artifact tests, official in-app Browser desktop/narrow smoke and genuine captures; hosted results are linked from PR #20. No live hosted URL, public deployment, production traffic or external HTTPS acceptance is claimed here.
+The [verified source snapshot](testing.md#verified-snapshot) records the local built-artifact tests and genuine local captures. [Hosted demo acceptance](testing.md#hosted-demo-acceptance) separately records the public HTTPS and official Browser checks, including naturally elapsed workspace expiry. The screenshot gallery retains its local capture provenance.
 
 ## Explore the demo in your browser
 

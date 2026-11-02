@@ -1,6 +1,6 @@
 # ADR 005: same-origin Java artifact
 
-Status: accepted for local implementation; hosted deployment and safe public-demo acceptance remain pending.
+Status: accepted and implemented; deployed artifact observations and remaining limitations are recorded in [dated hosted acceptance](../testing.md#hosted-demo-acceptance).
 
 ## Problem and current behavior
 

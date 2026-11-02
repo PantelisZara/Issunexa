@@ -15,7 +15,7 @@ In the [Compose environment](../compose.yaml), Nginx serves the compiled fronten
 
 The default frontend address is `http://localhost:3000`; backend and database host bindings are loopback-only. In the separate Vite development workflow, the [development proxy](../frontend/vite.config.ts) forwards `/api` to the backend on port 8080. The backend architecture is the same in both workflows.
 
-The optional [root Dockerfile](../Dockerfile) also embeds the compiled UI in Java for a single-service deployment. Under the public profile, Java serves explicit browser routes and assets alongside the API; an external HTTPS ingress is required. This is locally verified preparation, not a hosted deployment. See the [artifact contract](single-service-artifact.md).
+The optional [root Dockerfile](../Dockerfile) also embeds the compiled UI in Java for a single-service deployment. Under the public profile, Java serves explicit browser routes and assets alongside the API; an external HTTPS ingress is required. The same artifact serves the public synthetic demo; see the [dated hosted observations and limitations](testing.md#hosted-demo-acceptance). See the [artifact contract](single-service-artifact.md).
 
 ## Component boundaries
 
@@ -51,6 +51,6 @@ The [E2E runner](../frontend/e2e/run-e2e.sh) builds real application images, cre
 - [ADR 007: isolated demo workspaces](decisions/007-isolated-demo-workspaces.md)
 - [ADR 008: managed logical recovery](decisions/008-managed-recovery.md)
 
-These ADRs record decisions already embodied in the implementation. Compose defines a local HTTP environment. The artifact has a local 512 MiB container exercise; production deployment, concurrency capacity and independent business-service scaling remain unverified.
+These ADRs record decisions already embodied in the implementation. Compose defines a local HTTP environment. The artifact has both a local 512 MiB container exercise and [dated hosted observations](testing.md#hosted-demo-acceptance). Neither establishes production reliability, concurrency capacity or independent business-service scaling.
 
-Ordinary mode permits staff-wide ticket visibility. The opt-in `public,demo` mode confines both requester and agent to their server-bound visitor workspace, rejects password login and exposes no administrator. See the [demo backend](demo-backend.md), [demo UI](demo-ui.md), [managed provisioning](managed-postgresql.md) and [recovery](managed-recovery.md) contracts. Actual hosted topology remains an [acceptance gate](operations.md#release-and-provider-acceptance).
+Ordinary mode permits staff-wide ticket visibility. The opt-in `public,demo` mode confines both requester and agent to their server-bound visitor workspace, rejects password login and exposes no administrator. See the [demo backend](demo-backend.md), [demo UI](demo-ui.md), [managed provisioning](managed-postgresql.md) and [recovery](managed-recovery.md) contracts. Observed hosted topology and remaining limitations are recorded in [hosted acceptance](testing.md#hosted-demo-acceptance).

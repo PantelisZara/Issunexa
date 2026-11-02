@@ -1,6 +1,6 @@
 # Single-service artifact
 
-The root [Dockerfile](../Dockerfile) packages the existing React UI and Java API in one Java 21 process. This prepares a same-origin deployment; isolated synthetic demo behavior is implemented and tested locally, while a working hosted service remains unverified. The normal [Nginx/Compose workflow](local-development.md) remains available.
+The root [Dockerfile](../Dockerfile) packages the existing React UI and Java API in one Java 21 process. This same-origin artifact serves the public synthetic demo; [dated hosted observations and limitations](testing.md#hosted-demo-acceptance) are recorded separately from its local verification. The normal [Nginx/Compose workflow](local-development.md) remains available.
 
 ## Build and runtime contract
 
@@ -46,7 +46,7 @@ On 2026-10-31, the portable artifact command completed seven application journey
 
 The local 512 MiB exercise covers startup, migrations and representative single-browser activity. It does not establish concurrency capacity, provider CPU constraints, cold database wake-up, provider build compatibility, availability or uptime. Sessions and login budgets are in process memory and reset on restart. No multi-instance session storage is provided.
 
-Startup fails when migration or database authentication fails; a static page response alone is not database readiness. The E2E runner checks database readiness and the application CSRF contract after startup, then exercises persisted workflows. The [operational probes](operations.md) distinguish process liveness from on-demand database readiness. Managed provisioning, isolated demo workspaces/quotas/expiration and trusted fresh-target logical recovery have local executable coverage. Actual provider roles/TLS, public-edge behavior, idle quotas and off-host backup storage/retention remain [release prerequisites](operations.md#release-and-provider-acceptance). No cloud account, hosted service or billable resource is created by this change.
+Startup fails when migration or database authentication fails; a static page response alone is not database readiness. The E2E runner checks database readiness and the application CSRF contract after startup, then exercises persisted workflows. The [operational probes](operations.md) distinguish process liveness from on-demand database readiness. Managed provisioning, isolated demo workspaces/quotas/expiration and trusted fresh-target logical recovery have local executable coverage. Actual provider roles/TLS, public-edge behavior, resource usage and fresh-target recovery have separate [dated hosted evidence](testing.md#hosted-demo-acceptance). It does not establish quota-exhaustion behavior or off-host backup storage/retention. No cloud account, hosted service or billable resource is created by this change.
 
 [ADR 005](decisions/005-single-service-artifact.md) records alternatives and rollback.
 
@@ -54,4 +54,4 @@ Startup fails when migration or database authentication fails; a static page res
 
 On 2026-11-01, a fresh local invocation of the same compiled UI/backend source used an effective Docker limit of **0.1 CPU and 536,870,912 bytes**. After Compose returned from starting the services, database readiness first succeeded in **238.4 seconds**. Java reported application startup in 223.6 seconds; observed peak cgroup memory was 269,926,400 bytes, UID 10001, with no OOM kill. PostgreSQL was local and not CPU-limited. This timed check excludes image builds and the earlier provisioning stage; it exercises startup/readiness only, with no browser or concurrency benchmark under the CPU quota.
 
-The earlier unthrottled observations above remain historical. This slower result is a material cold-start limitation for the candidate free hosting shape, not a prediction or guarantee of Render startup. Actual platform scheduling, database wake and network latency remain unverified. Do not use paid compute or artificial keepalives to conceal the delay.
+The earlier unthrottled observations above remain historical. This slower result is a material cold-start limitation for the candidate free hosting shape, not a prediction or guarantee of Render startup. This local exercise does not separately measure provider scheduling variability, database wake or end-to-end network latency; [dated hosted startup/resource observations](testing.md#hosted-demo-acceptance) are recorded separately. Do not use paid compute or artificial keepalives to conceal the delay.

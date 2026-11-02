@@ -1,6 +1,6 @@
 # Isolated synthetic demo backend
 
-The backend and [credential-free UI](demo-ui.md) provide an isolated synthetic demo verified locally through the built artifact. Independent review, backend tests, ordinary regressions and demo browser journeys are recorded in [testing.md](testing.md#verified-snapshot). Actual ingress/provider acceptance and a public hosted demo remain unverified. [ADR007](decisions/007-isolated-demo-workspaces.md) records the decision.
+The backend and [credential-free UI](demo-ui.md) provide an isolated synthetic demo verified locally through the built artifact. Independent review, backend tests, ordinary regressions and demo browser journeys are recorded in [testing.md](testing.md#verified-snapshot). Actual public HTTPS and isolated visitor workflows have separate [dated hosted observations and limitations](testing.md#hosted-demo-acceptance). [ADR007](decisions/007-isolated-demo-workspaces.md) records the decision.
 
 ## Enable deliberately
 
